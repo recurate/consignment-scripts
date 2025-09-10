@@ -6,6 +6,8 @@
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
 // @grant        none
+// @updateURL    https://raw.githubusercontent.com/recurate/consignment-scripts/refs/heads/main/print-label.user.js
+// @downloadURL  https://raw.githubusercontent.com/recurate/consignment-scripts/refs/heads/main/print-label.user.js
 // ==/UserScript==
 
 
