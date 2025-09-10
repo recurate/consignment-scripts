@@ -5,6 +5,7 @@
 // @description  Intercepts a specific button click, shows a confirmation modal, and performs an action based on user choice.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
+// @downloadURL  https://your-stable-raw-url/script.user.js
 // @grant        GM_addStyle
 // @grant        GM_setClipboard
 // ==/UserScript==
