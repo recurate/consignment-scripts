@@ -120,7 +120,7 @@ function setupForListing() {
         // --- B. Create and display the popup with the extracted data ---
 
         // Opens a new, small browser window (a popup).
-        const popup = window.open('', 'dataPopup', 'width=400,height=500,scrollbars=yes,resizable=yes');
+        const popup = window.open('', 'dataPopup', 'width=200,height=500,scrollbars=yes,resizable=yes');
 
         // Check if the popup was successfully created (i.e., not blocked by a popup blocker)
         if (popup) {
@@ -129,7 +129,7 @@ function setupForListing() {
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <title>Extracted Details</title>
+                    <title>Trove License Plate</title>
                     <style>
                         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 15px; line-height: 1.6; }
                         h1 { font-size: 1.2em; margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 10px; }
@@ -148,7 +148,6 @@ function setupForListing() {
                     <p><strong>Product:</strong> ${productName}</p>
                     <p><strong>Option 1:</strong> ${option1}</p>
                     <p><strong>Option 2:</strong> ${option2}</p>
-                    <p><strong>Consignor:</strong> ${consignor}</p>
                 </body>
                 </html>
             `;
