@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Print Label button
 // @namespace    http://tampermonkey.net/
-// @version      0.5
+// @version      0.6
 // @description  Adds a button to extract page data into a printable popup with a QR code.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
