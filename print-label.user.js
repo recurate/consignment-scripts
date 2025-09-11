@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Print Label button
 // @namespace    http://tampermonkey.net/
-// @version      0.6
+// @version      0.5
 // @description  Adds a button to extract page data into a printable popup with a QR code.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -131,23 +131,23 @@ function setupForListing() {
                 <head>
                     <title>Trove License Plate</title>
                     <style>
-                        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 15px; line-height: 1.6; }
-                        h1 { font-size: 1.2em; margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 10px; }
-                        p { margin: 8px 0; }
+                        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 5px; line-height: 1.6; }
+                        h1 { font-size: 0.5em; margin-bottom: 5px; border-bottom: 1px solid #ccc; padding-bottom: 0px; }
+                        p { margin: 8px 0; font-size: 0.5em; }
                         strong { color: #333; min-width: 90px; display: inline-block; }
                         .qr-container { text-align: center; margin-bottom: 15px; }
                         .qr-container img { border: 1px solid #ddd; padding: 4px; border-radius: 4px; }
                     </style>
                 </head>
                 <body>
-                    <h1>Page Details</h1>
+                    <h1>Trove License Plate</h1>
                     <div class="qr-container">
                         <img src="${qrCodeUrl}" alt="QR Code for ID ${cleanedId}" title="QR Code for ID ${cleanedId}">
                     </div>
-                    <p><strong>ID:</strong> ${cleanedId}</p>
-                    <p><strong>Product:</strong> ${productName}</p>
-                    <p><strong>Option 1:</strong> ${option1}</p>
-                    <p><strong>Option 2:</strong> ${option2}</p>
+                    <p>${cleanedId}</p>
+                    <p>${productName}</p>
+                    <p>${option1}</p>
+                    <p>${option2}</p>
                 </body>
                 </html>
             `;
