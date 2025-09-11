@@ -120,7 +120,7 @@ function setupForListing() {
         // --- B. Create and display the popup with the extracted data ---
 
         // Opens a new, small browser window (a popup).
-        const popup = window.open('', 'dataPopup', 'width=200,height=500,scrollbars=yes,resizable=yes');
+        const popup = window.open('', 'dataPopup', 'width=192,height=384,scrollbars=yes,resizable=yes');
 
         // Check if the popup was successfully created (i.e., not blocked by a popup blocker)
         if (popup) {
