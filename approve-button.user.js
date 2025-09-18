@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accept and approve button
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Intercepts a specific button click, shows a confirmation modal, and performs an action based on user choice.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -205,7 +205,27 @@
 
     // Function to show the Approval modal
     function showModal() {
-        if (modal) modal.classList.remove('interceptor-hidden');
+        // (modal) modal.classList.remove('interceptor-hidden');
+
+        if (modal) {
+            // New logic to pre-populate the price
+            const listingPriceInput = document.querySelector('input[name="listing_price"]');
+            const shippingPriceInput = document.querySelector('input[name="shipping_price"]');
+            let initialPrice = 0;
+            if (listingPriceInput && shippingPriceInput) {
+                const listingPrice = parseFloat(listingPriceInput.value);
+                const shippingPrice = parseFloat(shippingPriceInput.value);
+                if (Math.abs(listingPrice/(listingPrice + shippingPrice) - 0.7) < 0.02 ) {
+                    initialPrice = listingPrice + shippingPrice;
+                }
+            }
+
+            // Set the pre-populated value
+            resalePriceInput.value = initialPrice > 0 ? initialPrice : '0';
+            handlePriceInput(); // Update payout amount based on initial value
+
+            modal.classList.remove('interceptor-hidden');
+        }
     }
 
     // Function to hide the Approval modal
@@ -390,39 +410,79 @@
         }
     }
 
+    function isPriceValid() {
+        const price = parseInt(resalePriceInput.value, 10);
+        return !isNaN(price) && price > 0;
+    }
+
     // --- Modal Button Event Listeners ---
     document.getElementById('interceptor-accept-btn').addEventListener('click', async () => {
         console.log("'Accept consignment' clicked.");
 
+        if (!isPriceValid()) {
+            alert("Please enter a valid resale price greater than $0.");
+            return;
+        }
+
         const resalePrice = resalePriceInput.value;
         await updateListingPrices(resalePrice);
 
-        // Update the seller details before approving the listing
-        await updateSellerInfo();
+        // Click the "Save" button after updating prices ---
+        const saveButton = document.querySelector('[data-testid="save-pending-listing-btn"]');
+        if (saveButton) {
+            saveButton.click();
+            console.log("Simulated click on 'Save' button.");
+        } else {
+            console.warn("Could not find the 'Save' button with data-testid='save-pending-listing-btn'.");
+        }
 
-        const textSourceSelector = classStringToSelector(TEXT_SOURCE_DIV_CLASSES);
-        const textSourceDiv = document.querySelector(textSourceSelector);
+        // Select the elements using their data-testid attributes
+        const addressLine1 = document.querySelector('[data-testid="seller-address-line-1"]');
+        const addressLine2 = document.querySelector('[data-testid="seller-address-line-2"]');
 
-        if (textSourceDiv) {
-            const textToCopy = textSourceDiv.innerText;
+        // Construct the text to copy
+        let textToCopy = '';
+        if (addressLine1 && addressLine1.innerText) {
+            textToCopy += addressLine1.innerText.trim();
+        }
+        if (addressLine2 && addressLine2.innerText) {
+            if (textToCopy !== '') {
+                textToCopy += ' '; // Add a space if both lines exist
+            }
+            textToCopy += addressLine2.innerText.trim();
+        }
+
+        if (textToCopy) {
             // Use GM_setClipboard for better reliability in userscripts
             GM_setClipboard(textToCopy);
             console.log("Copied to clipboard:", textToCopy);
-            alert("Content copied to clipboard!"); // Simple feedback
+            alert("Address copied to clipboard!"); // Simple feedback
         } else {
-            console.error("Could not find the div with the specified classes to copy text from.");
+            console.error("Could not find the address elements to copy text from.");
             alert("Error: Could not find the content to copy.");
         }
+
+        // Open the new URL in a new tab
+        window.open('https://apps.goshippo.com/orders/create', '_blank');
+
         hideModal();
     });
 
     document.getElementById('interceptor-publish-btn').addEventListener('click', async () => {
         console.log("'Publish' clicked.");
+
+        if (!isPriceValid()) {
+            alert("Please enter a valid resale price greater than $0.");
+            return;
+        }
+
         if (originalButtonClicked) {
             isPublishing = true; // Set the flag to allow the next click
 
             const resalePrice = resalePriceInput.value;
             await updateListingPrices(resalePrice);
+
+            alert("Updating seller information!"); // Simple feedback
 
             // Update the seller details before approving the listing
             await updateSellerInfo();
