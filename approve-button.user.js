@@ -30,6 +30,13 @@
             <div id="interceptor-modal-content">
                 <h2>Confirmation</h2>
                 <p>Do you want to accept this consignment or publish it to Shopify?</p>
+                <div id="resale-price-container">
+                    <label for="resale-price-input">Resale price: $</label>
+                    <input type="text" id="resale-price-input" placeholder="Sale price">
+                </div>
+                <div id="payout-info">
+                    Consignor will be paid-out $<span id="payout-amount">0.00</span>.
+                </div>
                 <div id="interceptor-modal-buttons">
                     <button id="interceptor-accept-btn">Accept consignment</button>
                     <button id="interceptor-publish-btn">Publish to Shopify</button>
@@ -100,6 +107,24 @@
         }
         .interceptor-hidden {
             display: none !important;
+        }
+        #resale-price-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 15px;
+            gap: 5px;
+        }
+        #resale-price-input {
+            width: 100px;
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        #payout-info {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #555;
         }
     `);
 
@@ -290,6 +315,28 @@
     }
 
 
+    async function updateListingPrices(price) {
+      console.log('[TM] Updating listing prices...');
+      const listingPriceInputSelector = 'input[name="listing_price"]';
+      const shippingPriceInputSelector = 'input[name="shipping_price"]';
+
+      try {
+          const listingPriceInput = await waitForElement(listingPriceInputSelector);
+          const shippingPriceInput = await waitForElement(shippingPriceInputSelector);
+
+          if (listingPriceInput) {
+              setReactInputValue(listingPriceInput, price * 0.7);
+              console.log(`[TM] Set listing_price to ${price}.`);
+          }
+          if (shippingPriceInput) {
+              setReactInputValue(shippingPriceInput, price * 0.3);
+              console.log(`[TM] Set shipping_price to ${price}.`);
+          }
+      } catch (error) {
+          console.error('[TM] Failed to update listing prices:', error);
+      }
+    }
+
     // Main interception function
     function interceptClick(event) {
         // If the click was triggered by our script to "Publish", let it go through.
@@ -325,9 +372,30 @@
         showModal();
     }
 
+    // --- New Price Input Logic ---
+    let resalePriceInput;
+    let payoutAmountSpan;
+
+    function handlePriceInput() {
+        const value = resalePriceInput.value;
+        const sanitizedValue = value.replace(/[^0-9]/g, '');
+        resalePriceInput.value = sanitizedValue;
+
+        const price = parseInt(sanitizedValue, 10);
+        if (!isNaN(price) && price >= 0) {
+            const payout = (price * 0.70).toFixed(2);
+            payoutAmountSpan.textContent = payout;
+        } else {
+            payoutAmountSpan.textContent = '0.00';
+        }
+    }
+
     // --- Modal Button Event Listeners ---
     document.getElementById('interceptor-accept-btn').addEventListener('click', async () => {
         console.log("'Accept consignment' clicked.");
+
+        const resalePrice = resalePriceInput.value;
+        await updateListingPrices(resalePrice);
 
         // Update the seller details before approving the listing
         await updateSellerInfo();
@@ -352,6 +420,9 @@
         console.log("'Publish' clicked.");
         if (originalButtonClicked) {
             isPublishing = true; // Set the flag to allow the next click
+
+            const resalePrice = resalePriceInput.value;
+            await updateListingPrices(resalePrice);
 
             // Update the seller details before approving the listing
             await updateSellerInfo();
@@ -392,6 +463,23 @@
 
     // Start observing the entire document body for changes.
     observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
+    // Use a MutationObserver to attach event listeners to the modal's new elements.
+    const modalObserver = new MutationObserver(() => {
+        const modalContent = document.getElementById('interceptor-modal-content');
+        if (modalContent && !resalePriceInput) {
+            resalePriceInput = document.getElementById('resale-price-input');
+            payoutAmountSpan = document.getElementById('payout-amount');
+            if (resalePriceInput) {
+                resalePriceInput.addEventListener('input', handlePriceInput);
+            }
+        }
+    });
+
+    modalObserver.observe(document.body, {
         childList: true,
         subtree: true
     });
