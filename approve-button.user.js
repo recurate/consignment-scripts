@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accept and approve button
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  Intercepts a specific button click, shows a confirmation modal, and performs an action based on user choice.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -25,30 +25,51 @@
 
     // --- Modal HTML and CSS ---
     // We inject the modal structure and styles into the page.
-    const modalHTML = `
-        <div id="interceptor-modal-backdrop" class="interceptor-hidden">
+    const modalAcceptHTML = `
+        <div id="accept-modal-backdrop" class="interceptor-hidden">
             <div id="interceptor-modal-content">
-                <h2>Confirmation</h2>
-                <p>Do you want to accept this consignment or publish it to Shopify?</p>
+                <h2>Accept and generate a label</h2>
+                <p>Do you want to accept this consignment? You will need to generate a shipping label to email to the consignor.</p>
                 <div id="resale-price-container">
                     <label for="resale-price-input">Resale price: $</label>
                     <input type="text" id="resale-price-input" placeholder="Sale price">
                 </div>
                 <div id="payout-info">
-                    Consignor will be paid-out $<span id="payout-amount">0.00</span>.
+                    Consignor will be paid $<span id="payout-amount">0.00</span> when the item sells.
                 </div>
                 <div id="interceptor-modal-buttons">
                     <button id="interceptor-accept-btn">Accept consignment</button>
-                    <button id="interceptor-publish-btn">Publish to Shopify</button>
+                    <button id="interceptor-publish-btn" style="display:none;">Publish to Shopify</button>
                     <button id="interceptor-cancel-btn">Cancel</button>
                 </div>
             </div>
         </div>
     `;
 
+    const modalPublishHTML = `
+        <div id="publish-modal-backdrop" class="interceptor-hidden">
+            <div id="interceptor-modal-content">
+                <h2>Publish to Shopify</h2>
+                <p>Please confirm you have inspected the item, confirmed the size, updated the condition, and printed a label.</p>
+                <div id="resale-price-container">
+                    <label for="resale-price-input-publish">Resale price: $</label>
+                    <input type="text" id="resale-price-input-publish" placeholder="Sale price">
+                </div>
+                <div id="payout-info">
+                    Consignor will be paid $<span id="payout-amount-publish">0.00</span> when the item sells.
+                </div>
+                <div id="interceptor-modal-buttons">
+                    <button id="interceptor-publish-confirm-btn">Confirm Publish</button>
+                    <button id="interceptor-cancel-publish-btn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+
     // Use GM_addStyle for robust CSS injection.
     GM_addStyle(`
-        #interceptor-modal-backdrop {
+        #accept-modal-backdrop, #publish-modal-backdrop {
             position: fixed;
             top: 0;
             left: 0;
@@ -101,7 +122,15 @@
             border-radius: 20px;
             text-transform: none;
         }
-        #interceptor-cancel-btn {
+        #interceptor-publish-confirm-btn {
+            color: #FFFFFF;
+            padding: 0 20px;
+            background: #000000;
+            margin-right: 5px;
+            border-radius: 20px;
+            text-transform: none;
+        }
+        #interceptor-cancel-btn, #interceptor-cancel-publish-btn {
             background-color: #6c757d;
             color: white;
         }
@@ -115,7 +144,7 @@
             margin-top: 15px;
             gap: 5px;
         }
-        #resale-price-input {
+        #resale-price-input, #resale-price-input-publish {
             width: 100px;
             padding: 5px;
             border: 1px solid #ccc;
@@ -131,7 +160,8 @@
     // -----------------------------
     // Configuration for changing the seller info fields
     // -----------------------------
-    // Provide any valid CSS selector. Classes are fine (e.g., ".my-btn"), as are attributes/IDs/etc.
+    // Provide any valid CSS selector.
+    // Classes are fine (e.g., ".my-btn"), as are attributes/IDs/etc.
     // Each step: click `buttonSelector`, wait for `inputSelector`, set `value`, (optional) pressEnter.
     const FIELD_STEPS = [
         {
@@ -151,7 +181,7 @@
             // Seller email
             buttonSelector: 'p[data-testid="seller-email-header"] button[data-testid="edit-btn"]',
             inputSelector: [ 'input[name="seller_email"]' ],
-            value: [ 'dvf-consign@trove.co' ],
+            value: [ 'dvf@trove.co' ],
             pressEnter: true,    // simulate Enter key after setting value
         },
         {
@@ -187,50 +217,67 @@
             pressEnter: true,    // simulate Enter key after setting value
         },
     ];
-
     // Global timing for updating the seller info fields
-    const CHECK_INTERVAL_MS = 300;   // how often to poll for elements (ms)
-    const STEP_TIMEOUT_MS   = 15000; // max wait per button or input (ms)
-    const AFTER_CLICK_PAUSE_MS = 150; // small pause after click, before polling input
-    const BETWEEN_STEPS_PAUSE_MS = 200; // small pause between steps
-    const AFTER_APPROVE_IS_CLICKED = 5000; // small pause between steps
+    const CHECK_INTERVAL_MS = 300;
+    // how often to poll for elements (ms)
+    const STEP_TIMEOUT_MS   = 15000;
+    // max wait per button or input (ms)
+    const AFTER_CLICK_PAUSE_MS = 150;
+    // small pause after click, before polling input
+    const BETWEEN_STEPS_PAUSE_MS = 200;
+    // small pause between steps
+    const AFTER_APPROVE_IS_CLICKED = 5000;
+    // small pause between steps
 
-    // Add the modal to the page's body.
-    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    // Add both modals to the page's body.
+    document.body.insertAdjacentHTML('beforeend', modalAcceptHTML);
+    document.body.insertAdjacentHTML('beforeend', modalPublishHTML);
 
     // --- Core Logic ---
-    const modal = document.getElementById('interceptor-modal-backdrop');
+    const acceptModal = document.getElementById('accept-modal-backdrop');
+    const publishModal = document.getElementById('publish-modal-backdrop');
     let originalButtonClicked = null;
     let isPublishing = false; // Flag to prevent infinite loop
+    let currentModalPriceInput;
+    let currentModalPayoutSpan;
 
-    // Function to show the Approval modal
-    function showModal() {
-        // (modal) modal.classList.remove('interceptor-hidden');
+    // Function to show the correct modal
+    function showModal(type) {
+        if (type === 'accept') {
+            acceptModal.classList.remove('interceptor-hidden');
+            publishModal.classList.add('interceptor-hidden');
+            currentModalPriceInput = document.getElementById('resale-price-input');
+            currentModalPayoutSpan = document.getElementById('payout-amount');
+        } else if (type === 'publish') {
+            publishModal.classList.remove('interceptor-hidden');
+            acceptModal.classList.add('interceptor-hidden');
+            currentModalPriceInput = document.getElementById('resale-price-input-publish');
+            currentModalPayoutSpan = document.getElementById('payout-amount-publish');
+        }
 
-        if (modal) {
-            // New logic to pre-populate the price
-            const listingPriceInput = document.querySelector('input[name="listing_price"]');
-            const shippingPriceInput = document.querySelector('input[name="shipping_price"]');
-            let initialPrice = 0;
-            if (listingPriceInput && shippingPriceInput) {
-                const listingPrice = parseFloat(listingPriceInput.value);
-                const shippingPrice = parseFloat(shippingPriceInput.value);
-                if (Math.abs(listingPrice/(listingPrice + shippingPrice) - 0.7) < 0.02 ) {
-                    initialPrice = listingPrice + shippingPrice;
-                }
+        // Common logic for both modals
+        const listingPriceInput = document.querySelector('input[name="listing_price"]');
+        const shippingPriceInput = document.querySelector('input[name="shipping_price"]');
+        let initialPrice = 0;
+        if (listingPriceInput && shippingPriceInput) {
+            const listingPrice = parseFloat(listingPriceInput.value);
+            const shippingPrice = parseFloat(shippingPriceInput.value);
+            if (Math.abs(listingPrice/(listingPrice + shippingPrice) - 0.7) < 0.02 ) {
+                initialPrice = listingPrice + shippingPrice;
             }
+        }
 
-            // Set the pre-populated value
-            resalePriceInput.value = initialPrice > 0 ? initialPrice : '0';
+        // Set the pre-populated value
+        if (currentModalPriceInput) {
+            currentModalPriceInput.value = initialPrice > 0 ? initialPrice : '0';
             handlePriceInput(); // Update payout amount based on initial value
-
-            modal.classList.remove('interceptor-hidden');
         }
     }
 
-    // Function to hide the Approval modal
-    function hideModal() {
-        if (modal) modal.classList.add('interceptor-hidden');
+    // Function to hide all modals
+    function hideModals() {
+        if (acceptModal) acceptModal.classList.add('interceptor-hidden');
+        if (publishModal) publishModal.classList.add('interceptor-hidden');
         originalButtonClicked = null; // Reset after action
     }
 
@@ -244,7 +291,6 @@
     // Utilities for updating the seller info fields
     // -----------------------------
     const wait = (ms) => new Promise(res => setTimeout(res, ms));
-
     function waitForElement(selector, timeoutMs = STEP_TIMEOUT_MS, pollMs = CHECK_INTERVAL_MS) {
         return new Promise((resolve, reject) => {
             const start = performance.now();
@@ -271,7 +317,8 @@
         } else {
             setter.call(inputEl, newValue);
         }
-        inputEl.dispatchEvent(new Event('input', { bubbles: true })); // let React know
+        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        // let React know
     }
 
     function pressEnter(el) {
@@ -288,10 +335,8 @@
 
     async function updateSellerInfo() {
         console.log('[TM] Multi-Field Click & Fill: starting…');
-
         for (let i = 0; i < FIELD_STEPS.length; i++) {
             const { buttonSelector, inputSelector, value, pressEnter: doEnter } = FIELD_STEPS[i];
-
             console.log(`[TM] Step ${i + 1}/${FIELD_STEPS.length}: waiting for button: ${buttonSelector}`);
             const btn = await waitForElement(buttonSelector).catch(err => {
                 console.error(`[TM] Step ${i + 1}: ${err.message}`);
@@ -316,7 +361,6 @@
                 // Set value and optionally press Enter
                 setReactInputValue(input, value[j]);
                 console.log(`[TM] Step ${i + 1}: set input value to "${value[j]}".`);
-
                 if (doEnter) {
                     pressEnter(input);
                     console.log(`[TM] Step ${i + 1}: pressed Enter.`);
@@ -389,31 +433,35 @@
 
         console.log("Button click intercepted. Showing modal.");
         originalButtonClicked = event.currentTarget; // Store the button that was clicked
-        showModal();
+        if (originalButtonClicked.id === 'custom-accept-button') {
+            showModal('accept');
+        } else if (originalButtonClicked.textContent.trim() === 'Publish to Shopify') {
+            showModal('publish');
+        }
     }
 
     // --- New Price Input Logic ---
-    let resalePriceInput;
-    let payoutAmountSpan;
-
     function handlePriceInput() {
-        const value = resalePriceInput.value;
-        const sanitizedValue = value.replace(/[^0-9]/g, '');
-        resalePriceInput.value = sanitizedValue;
+        if (!currentModalPriceInput || !currentModalPayoutSpan) return;
 
-        const price = parseInt(sanitizedValue, 10);
+        const value = currentModalPriceInput.value;
+        const sanitizedValue = value.replace(/[^0-9.]/g, ''); // Allow decimal points
+        currentModalPriceInput.value = sanitizedValue;
+
+        const price = parseFloat(sanitizedValue);
         if (!isNaN(price) && price >= 0) {
             const payout = (price * 0.70).toFixed(2);
-            payoutAmountSpan.textContent = payout;
+            currentModalPayoutSpan.textContent = payout;
         } else {
-            payoutAmountSpan.textContent = '0.00';
+            currentModalPayoutSpan.textContent = '0.00';
         }
     }
 
     function isPriceValid() {
-        const price = parseInt(resalePriceInput.value, 10);
+        const price = parseFloat(currentModalPriceInput.value);
         return !isNaN(price) && price > 0;
     }
+
 
     // --- Modal Button Event Listeners ---
     document.getElementById('interceptor-accept-btn').addEventListener('click', async () => {
@@ -424,7 +472,7 @@
             return;
         }
 
-        const resalePrice = resalePriceInput.value;
+        const resalePrice = currentModalPriceInput.value;
         await updateListingPrices(resalePrice);
 
         // Click the "Save" button after updating prices ---
@@ -447,7 +495,7 @@
         }
         if (addressLine2 && addressLine2.innerText) {
             if (textToCopy !== '') {
-                textToCopy += ' '; // Add a space if both lines exist
+                textToCopy += ' ';
             }
             textToCopy += addressLine2.innerText.trim();
         }
@@ -456,7 +504,7 @@
             // Use GM_setClipboard for better reliability in userscripts
             GM_setClipboard(textToCopy);
             console.log("Copied to clipboard:", textToCopy);
-            alert("Address copied to clipboard!"); // Simple feedback
+            alert("Shippo will now open. The consignor's address is copied to your clipboard."); // Simple feedback
         } else {
             console.error("Could not find the address elements to copy text from.");
             alert("Error: Could not find the content to copy.");
@@ -464,8 +512,7 @@
 
         // Open the new URL in a new tab
         window.open('https://apps.goshippo.com/orders/create', '_blank');
-
-        hideModal();
+        hideModals();
     });
 
     document.getElementById('interceptor-publish-btn').addEventListener('click', async () => {
@@ -478,8 +525,7 @@
 
         if (originalButtonClicked) {
             isPublishing = true; // Set the flag to allow the next click
-
-            const resalePrice = resalePriceInput.value;
+            const resalePrice = currentModalPriceInput.value;
             await updateListingPrices(resalePrice);
 
             alert("Updating seller information!"); // Simple feedback
@@ -488,53 +534,121 @@
             await updateSellerInfo();
 
             // End of updating the seller details
-
             originalButtonClicked.click(); // Programmatically click the original button
             console.log("Original button action is being triggered.");
         }
-        hideModal();
+        hideModals();
     });
+
+    document.getElementById('interceptor-publish-confirm-btn').addEventListener('click', async () => {
+        console.log("'Publish' clicked from publish modal.");
+
+        if (!isPriceValid()) {
+            alert("Please enter a valid resale price greater than $0.");
+            return;
+        }
+
+        if (originalButtonClicked) {
+            isPublishing = true; // Set the flag to allow the next click
+            const resalePrice = currentModalPriceInput.value;
+            await updateListingPrices(resalePrice);
+
+            alert("Updating seller information!"); // Simple feedback
+
+            // Update the seller details before approving the listing
+            await updateSellerInfo();
+
+            // End of updating the seller details
+            originalButtonClicked.click(); // Programmatically click the original button
+            console.log("Original button action is being triggered.");
+        }
+        hideModals();
+    });
+
 
     document.getElementById('interceptor-cancel-btn').addEventListener('click', () => {
         console.log("Modal cancelled.");
-        hideModal();
+        hideModals();
+    });
+
+    document.getElementById('interceptor-cancel-publish-btn').addEventListener('click', () => {
+        console.log("Publish Modal cancelled.");
+        hideModals();
     });
 
     // --- Dynamic Button Detection ---
     // We need to watch the page for when the button is added,
     // especially on modern, dynamic websites.
     function attachListenerToButton() {
-        const buttonSelector = classStringToSelector(TARGET_BUTTON_CLASSES);
-        const targetButton = document.querySelector(buttonSelector);
+        const approveButton = document.querySelector('.fullButton');
+        const denyButton = document.querySelector('.outlineButton');
 
-        // Check if the button exists and doesn't already have our listener
-        if (targetButton && !targetButton.dataset.interceptorAttached) {
-            console.log("Target button found. Attaching interceptor.");
-            targetButton.addEventListener('click', interceptClick, true); // Use capture phase
-            targetButton.dataset.interceptorAttached = 'true'; // Mark as attached
+        if (approveButton && denyButton) {
+            console.log("Found approve and deny button.");
+            // Check if the new button has already been added
+            if (!document.getElementById('custom-accept-button')) {
+                const newButton = document.createElement('button');
+                newButton.id = 'custom-accept-button';
+                newButton.className = 'MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-textPrimary MuiButton-sizeMedium MuiButton-textSizeMedium MuiButton-colorPrimary MuiButton-root MuiButton-text MuiButton-textPrimary MuiButton-sizeMedium MuiButton-textSizeMedium MuiButton-colorPrimary css-1ujsas3';
+                newButton.textContent = 'Accept consignment';
+                newButton.style.backgroundColor = 'black';
+                newButton.style.color = 'white';
+                newButton.style.padding = '4px 20px';
+                newButton.style.borderRadius = '20px';
+                newButton.style.textTransform = 'none';
+
+                // Add event listener to the new button to show the modal
+                newButton.addEventListener('click', (event) => {
+                    // This function will handle the click and show the modal
+                    interceptClick(event);
+                });
+                // Insert the new button between the Deny and Approve buttons
+                denyButton.parentNode.insertBefore(newButton, approveButton);
+                console.log("Injected 'Accept consignment' button.");
+            } else {
+                console.log("Could not find the approve or deny button");
+            }
+
+            // Change the label of the original 'Approve' button
+            if (approveButton.textContent.trim() !== 'Publish to Shopify') {
+                approveButton.textContent = 'Publish to Shopify';
+                approveButton.dataset.originalLabel = 'Approve';
+                // Attach the original listener to this button.
+                if (!approveButton.dataset.interceptorAttached) {
+                    approveButton.addEventListener('click', interceptClick, true);
+                    // Use capture phase
+                    approveButton.dataset.interceptorAttached = 'true';
+                    // Mark as attached
+                }
+                console.log("Updated 'Approve' button to 'Publish to Shopify'.");
+            }
         }
     }
 
     // Use a MutationObserver to efficiently detect when new elements are added to the page.
     const observer = new MutationObserver((mutations) => {
-        // A simple check is often enough. For performance, you could inspect mutations more closely.
-        attachListenerToButton();
+       // A simple check is often enough. For performance, you could inspect mutations more closely.
+       attachListenerToButton();
     });
-
     // Start observing the entire document body for changes.
     observer.observe(document.body, {
         childList: true,
         subtree: true
     });
-
     // Use a MutationObserver to attach event listeners to the modal's new elements.
     const modalObserver = new MutationObserver(() => {
-        const modalContent = document.getElementById('interceptor-modal-content');
-        if (modalContent && !resalePriceInput) {
-            resalePriceInput = document.getElementById('resale-price-input');
-            payoutAmountSpan = document.getElementById('payout-amount');
-            if (resalePriceInput) {
-                resalePriceInput.addEventListener('input', handlePriceInput);
+        if (document.getElementById('accept-modal-backdrop') && !currentModalPriceInput) {
+            const acceptModalContent = document.getElementById('accept-modal-backdrop').querySelector('#interceptor-modal-content');
+            if (acceptModalContent) {
+                 const input = acceptModalContent.querySelector('#resale-price-input');
+                 if (input) input.addEventListener('input', handlePriceInput);
+            }
+        }
+        if (document.getElementById('publish-modal-backdrop') && !currentModalPriceInput) {
+             const publishModalContent = document.getElementById('publish-modal-backdrop').querySelector('#interceptor-modal-content');
+             if (publishModalContent) {
+                const input = publishModalContent.querySelector('#resale-price-input-publish');
+                if (input) input.addEventListener('input', handlePriceInput);
             }
         }
     });
@@ -543,7 +657,6 @@
         childList: true,
         subtree: true
     });
-
     // Also run it once on script start, in case the button is already there.
     attachListenerToButton();
 
