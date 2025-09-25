@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Print Label button
+// @name         Print label button
 // @namespace    http://tampermonkey.net/
-// @version      0.7
+// @version      1.1
 // @description  Adds a button to extract page data into a printable popup with a QR code.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -120,7 +120,7 @@ function setupForListing() {
         // --- B. Create and display the popup with the extracted data ---
 
         // Opens a new, small browser window (a popup).
-        const popup = window.open('', 'dataPopup', 'width=192,height=384,scrollbars=yes,resizable=yes');
+        const popup = window.open('', 'dataPopup', 'width=384,height=192,scrollbars=yes,resizable=yes');
 
         // Check if the popup was successfully created (i.e., not blocked by a popup blocker)
         if (popup) {
@@ -140,14 +140,22 @@ function setupForListing() {
                     </style>
                 </head>
                 <body>
-                    <h1>Trove License Plate</h1>
-                    <div class="qr-container">
-                        <img src="${qrCodeUrl}" alt="QR Code for ID ${cleanedId}" title="QR Code for ID ${cleanedId}">
-                    </div>
-                    <p>${cleanedId}</p>
-                    <p>${productName}</p>
-                    <p>${option1}</p>
-                    <p>${option2}</p>
+                    <table>
+                       <tr>
+                          <td width="50%">
+                             <div class="qr-container">
+                                <img src="${qrCodeUrl}" alt="QR Code for ID ${cleanedId}" title="QR Code for ID ${cleanedId}">
+                             </div>
+                          </td>
+                          <td width="50%">
+                             <h1>Trove License Plate</h1>
+                             <p>${cleanedId}</p>
+                             <p>${productName}</p>
+                             <p>${option1}</p>
+                             <p>${option2}</p>
+                          </td>
+                       </tr>
+                    </table>
                 </body>
                 </html>
             `;
