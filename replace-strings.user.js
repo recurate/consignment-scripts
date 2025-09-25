@@ -1,12 +1,14 @@
 // ==UserScript==
-// @name         Replace Seller Strings with Consigner
+// @name         Update dashboard copy
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Replaces specific text on a React-based webpage. Easily configurable.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
 // @grant        none
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/recurate/consignment-scripts/refs/heads/main/replace-strings.user.js
+// @downloadURL  https://raw.githubusercontent.com/recurate/consignment-scripts/refs/heads/main/replace-strings.user.js
 // ==/UserScript==
 
 (function() {
