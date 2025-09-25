@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accept and approve button
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  Intercepts a specific button click, shows a confirmation modal, and performs an action based on user choice.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -528,7 +528,7 @@
             const resalePrice = currentModalPriceInput.value;
             await updateListingPrices(resalePrice);
 
-            alert("Updating seller information!"); // Simple feedback
+            alert("We are now replacing the consignor's name, address, and email with the ReWrap information!"); // Simple feedback
 
             // Update the seller details before approving the listing
             await updateSellerInfo();
@@ -613,6 +613,9 @@
             if (approveButton.textContent.trim() !== 'Publish to Shopify') {
                 approveButton.textContent = 'Publish to Shopify';
                 approveButton.dataset.originalLabel = 'Approve';
+                approveButton.style.setProperty('padding', '4px 20px', 'important'); // Match the new button's padding
+                approveButton.style.setProperty('height', 'auto', 'important');
+
                 // Attach the original listener to this button.
                 if (!approveButton.dataset.interceptorAttached) {
                     approveButton.addEventListener('click', interceptClick, true);
