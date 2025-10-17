@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accept and approve button
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.7
 // @description  Intercepts a specific button click, shows a confirmation modal, and performs an action based on user choice.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -173,7 +173,7 @@
             ],
             value: [
                 'DVF',
-                'ReWrap',
+                'Vintage',
             ],
             pressEnter: true,    // simulate Enter key after setting value
         },
@@ -530,7 +530,7 @@
             const resalePrice = currentModalPriceInput.value;
             await updateListingPrices(resalePrice);
 
-            alert("We are now replacing the consignor's name, address, and email with the ReWrap information!"); // Simple feedback
+            alert("We are now replacing the consignor's name, address, and email with the DVF Vintage information!"); // Simple feedback
 
             // Update the seller details before approving the listing
             await updateSellerInfo();
