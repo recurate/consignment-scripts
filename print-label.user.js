@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Print label button
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Adds a button to extract page data into a printable popup with a QR code.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -122,6 +122,25 @@ function setupForListing() {
         // Opens a new, small browser window (a popup).
         const popup = window.open('', 'dataPopup', 'width=384,height=192,scrollbars=yes,resizable=yes');
 
+
+        // 6. Get and calculate the total price.
+        const listingPriceInput = document.querySelector('input[name="listing_price"]');
+        const shippingPriceInput = document.querySelector('input[name="shipping_price"]');
+        let tagPrice = 0;
+        if (listingPriceInput && shippingPriceInput) {
+            // Use '|| 0' to gracefully handle empty or invalid values
+            const listingPrice = parseFloat(listingPriceInput.value) || 0;
+            const shippingPrice = parseFloat(shippingPriceInput.value) || 0;
+            tagPrice = listingPrice + shippingPrice;
+        }
+
+        // Format for display
+        const displayPrice = `$${tagPrice.toFixed(2)}`;
+
+
+        // --- B. Create and display the popup with the extracted data ---
+        // ... (rest of the function starts here ) ...
+
         // Check if the popup was successfully created (i.e., not blocked by a popup blocker)
         if (popup) {
             // Construct the HTML content for the popup window.
@@ -149,10 +168,10 @@ function setupForListing() {
                           </td>
                           <td width="50%">
                              <h1>Trove License Plate</h1>
+                             <p><font size="3em">Price: ${displayPrice}</font></p>
                              <p>${cleanedId}</p>
                              <p>${productName}</p>
-                             <p>${option1}</p>
-                             <p>${option2}</p>
+                             <p>${option1} / ${option2}</p>
                           </td>
                        </tr>
                     </table>
