@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accept and approve button
 // @namespace    http://tampermonkey.net/
-// @version      1.7
+// @version      1.8
 // @description  Intercepts a specific button click, shows a confirmation modal, and performs an action based on user choice.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -14,26 +14,37 @@
 (function() {
     'use strict';
 
-    // --- Configuration ---
-    // This is the specific, long class string for the button you want to intercept.
-    const TARGET_BUTTON_CLASSES = "MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-textPrimary MuiButton-sizeMedium MuiButton-textSizeMedium MuiButton-colorPrimary MuiButton-root MuiButton-text MuiButton-textPrimary MuiButton-sizeMedium MuiButton-textSizeMedium MuiButton-colorPrimary fullButton css-1ujsas3";
+    // The original Consignor information; before we replace it with DVF Vintage's information.
+    let originalEmail = null; // This will hold the email we find.
+    let originalFirstName = null;
+    let originalLastName = null;
 
-    // This is the class for the div whose text content you want to copy.
-    const TEXT_SOURCE_DIV_CLASSES = "MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-6 MuiGrid-grid-md-4 css-1twzmnh";
-    // --- End Configuration ---
+    let originalAddress1 = null;
+    let originalAddress2 = null;
+    let originalCity = null;
+    let originalState = null;
+    let originalPostal = null;
+    let originalPhone = null;
 
 
-    // --- Modal HTML and CSS ---
-    // We inject the modal structure and styles into the page.
+    // Targets to display the original Consignor info
+    const targetEmailSelector = 'p[data-testid="seller-email"]';
+    const targetNameSelector = 'p[data-testid="seller-name"]';
+    const targetAddress1Selector = 'p[data-testid="seller-address-line-1"]';
+    const targetAddress2Selector = 'p[data-testid="seller-address-line-2"]';
+    const targetPhoneSelector = 'p[data-testid="seller-phone"]';
+    // --- "Accept" Modal HTML and CSS ---
     const modalAcceptHTML = `
         <div id="accept-modal-backdrop" class="interceptor-hidden">
             <div id="interceptor-modal-content">
                 <h2>Accept and generate a label</h2>
-                <p>Do you want to accept this consignment? You will need to generate a shipping label to email to the consignor.</p>
+                <p>Do you want to accept this consignment?
+You will need to generate a shipping label to email to the consignor.</p>
                 <div id="resale-price-container">
                     <label for="resale-price-input">Resale price: $</label>
                     <input type="text" id="resale-price-input" placeholder="Sale price">
                 </div>
+
                 <div id="payout-info">
                     Consignor will be paid $<span id="payout-amount">0.00</span> when the item sells.
                 </div>
@@ -41,21 +52,24 @@
                     <button id="interceptor-accept-btn">Accept consignment</button>
                     <button id="interceptor-publish-btn" style="display:none;">Publish to Shopify</button>
                     <button id="interceptor-cancel-btn">Cancel</button>
+
                 </div>
             </div>
         </div>
     `;
-
+    // --- "Publish to Shopify" modal ---
     const modalPublishHTML = `
         <div id="publish-modal-backdrop" class="interceptor-hidden">
             <div id="interceptor-modal-content">
                 <h2>Publish to Shopify</h2>
                 <p>Please confirm you have inspected the item, confirmed the size, updated the condition, and printed a label.</p>
+
                 <div id="resale-price-container">
                     <label for="resale-price-input-publish">Resale price: $</label>
                     <input type="text" id="resale-price-input-publish" placeholder="Sale price">
                 </div>
                 <div id="payout-info">
+
                     Consignor will be paid $<span id="payout-amount-publish">0.00</span> when the item sells.
                 </div>
                 <div id="interceptor-modal-buttons">
@@ -64,6 +78,7 @@
                 </div>
             </div>
         </div>
+
     `;
 
 
@@ -76,6 +91,7 @@
             width: 100%;
             height: 100%;
             background-color: rgba(0, 0, 0, 0.6);
+
             z-index: 9999;
             display: flex;
             justify-content: center;
@@ -84,6 +100,7 @@
         }
         #interceptor-modal-content {
             background-color: white;
+
             padding: 25px;
             border-radius: 8px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
@@ -92,6 +109,7 @@
         }
         #interceptor-modal-content h2 {
             margin-top: 0;
+
         }
         #interceptor-modal-buttons {
             margin-top: 20px;
@@ -158,7 +176,7 @@
     `);
 
     // -----------------------------
-    // Configuration for changing the seller info fields
+    // Configuration for changing the consignor info to DVF Vintage's info
     // -----------------------------
     // Provide any valid CSS selector.
     // Classes are fine (e.g., ".my-btn"), as are attributes/IDs/etc.
@@ -171,6 +189,7 @@
                 'input[name="seller_first_name"]',
                 'input[name="seller_last_name"]',
             ],
+
             value: [
                 'DVF',
                 'Vintage',
@@ -178,6 +197,7 @@
             pressEnter: true,    // simulate Enter key after setting value
         },
         {
+
             // Seller email
             buttonSelector: 'p[data-testid="seller-email-header"] button[data-testid="edit-btn"]',
             inputSelector: [ 'input[name="seller_email"]' ],
@@ -185,6 +205,7 @@
             pressEnter: true,    // simulate Enter key after setting value
         },
         {
+
             // Seller phone
             buttonSelector: 'p[data-testid="seller-phone-header"] button[data-testid="edit-btn"]',
             inputSelector: [
@@ -193,6 +214,7 @@
             value: [
                 '888-888-8888'
             ],
+
             pressEnter: true,    // simulate Enter key after setting value
         },
         {
@@ -200,25 +222,28 @@
             buttonSelector: 'p[data-testid="seller-address-header"] button[data-testid="edit-btn"]',
             inputSelector: [
                 'input[name="seller_address_line1"]',
+
                 'input[name="seller_address_line2"]',
                 'input[name="seller_city"]',
                 'input[name="seller_state"]',
                 'input[name="seller_postal"]',
                 'input[name="seller_country"]'
             ],
-            value: [
+            value:
+            [
                 '872 Washington Street',
                 '',
                 'New York',
                 'NY',
                 '10014',
                 'US'
+
             ],
             pressEnter: true,    // simulate Enter key after setting value
         },
     ];
     // Global timing for updating the seller info fields
-    const CHECK_INTERVAL_MS = 300;
+    const CHECK_INTERVAL_MS = 200;
     // how often to poll for elements (ms)
     const STEP_TIMEOUT_MS   = 15000;
     // max wait per button or input (ms)
@@ -226,13 +251,19 @@
     // small pause after click, before polling input
     const BETWEEN_STEPS_PAUSE_MS = 200;
     // small pause between steps
-    const AFTER_APPROVE_IS_CLICKED = 5000;
-    // small pause between steps
 
-    // Add both modals to the page's body.
+
+
+    // =====================================================
+    // =====================================================
+    // =====================================================
+    // --- Add the "Accept" and "Publish" modals to the page's body.
+    // =====================================================
+    // =====================================================
+    // =====================================================
+
     document.body.insertAdjacentHTML('beforeend', modalAcceptHTML);
     document.body.insertAdjacentHTML('beforeend', modalPublishHTML);
-
     // --- Core Logic ---
     const acceptModal = document.getElementById('accept-modal-backdrop');
     const publishModal = document.getElementById('publish-modal-backdrop');
@@ -240,7 +271,6 @@
     let isPublishing = false; // Flag to prevent infinite loop
     let currentModalPriceInput;
     let currentModalPayoutSpan;
-
     // Function to show the correct modal
     function showModal(type) {
         if (type === 'accept') {
@@ -271,7 +301,8 @@
 
         // Set the pre-populated value
         if (currentModalPriceInput) {
-            currentModalPriceInput.value = initialPrice > 0 ? initialPrice : '0';
+            currentModalPriceInput.value = initialPrice > 0 ?
+            initialPrice : '0';
             handlePriceInput(); // Update payout amount based on initial value
         }
     }
@@ -285,13 +316,19 @@
 
     // Convert class string to a valid CSS selector
     function classStringToSelector(classStr) {
-        return '.' + classStr.trim().replace(/\s+/g, '.');
+        return '.'
+        + classStr.trim().replace(/\s+/g, '.');
     }
 
 
-    // -----------------------------
-    // Utilities for updating the seller info fields
-    // -----------------------------
+    // =====================================================
+    // =====================================================
+    // =====================================================
+    // --- Utilities for updating the seller info fields ---
+    // =====================================================
+    // =====================================================
+    // =====================================================
+
     const wait = (ms) => new Promise(res => setTimeout(res, ms));
     function waitForElement(selector, timeoutMs = STEP_TIMEOUT_MS, pollMs = CHECK_INTERVAL_MS) {
         return new Promise((resolve, reject) => {
@@ -300,6 +337,7 @@
             const tryFind = () => {
                 const el = document.querySelector(selector);
                 if (el) return resolve(el);
+
                 if (performance.now() - start >= timeoutMs) {
                     return reject(new Error(`Timed out waiting for: ${selector}`));
                 }
@@ -307,6 +345,7 @@
             };
 
             tryFind();
+
         });
     }
 
@@ -330,11 +369,13 @@
             keyCode: 13,
             which: 13,
             bubbles: true,
+
             cancelable: true,
         });
         el.dispatchEvent(evt);
     }
 
+    // --- Function to update the Consignor info with DVF Vintage
     async function updateSellerInfo() {
         console.log('[TM] Multi-Field Click & Fill: starting…');
         for (let i = 0; i < FIELD_STEPS.length; i++) {
@@ -381,6 +422,7 @@
     }
 
 
+    // --- Function to update the Seller Price and Shipping Price (i.e., Consignor Payout and DVF Payout)
     async function updateListingPrices(price) {
       console.log('[TM] Updating listing prices...');
       const listingPriceInputSelector = 'input[name="listing_price"]';
@@ -403,11 +445,20 @@
       }
     }
 
-    // Main interception function
+
+    // =====================================================
+    // =====================================================
+    // =====================================================
+    // Main function to intercept the "Approve" button
+    // =====================================================
+    // =====================================================
+    // =====================================================
+
     function interceptClick(event) {
         // If the click was triggered by our script to "Publish", let it go through.
         if (isPublishing) {
-            isPublishing = false; // Reset the flag
+            isPublishing = false;
+            // Reset the flag
             return;
         }
 
@@ -445,11 +496,9 @@
     // --- New Price Input Logic ---
     function handlePriceInput() {
         if (!currentModalPriceInput || !currentModalPayoutSpan) return;
-
         const value = currentModalPriceInput.value;
         const sanitizedValue = value.replace(/[^0-9.]/g, ''); // Allow decimal points
         currentModalPriceInput.value = sanitizedValue;
-
         const price = parseFloat(sanitizedValue);
         if (!isNaN(price) && price >= 0) {
             const payout = (price * 0.70).toFixed(2);
@@ -465,12 +514,21 @@
     }
 
 
+    // =====================================================
+    // =====================================================
+    // =====================================================
     // --- Modal Button Event Listeners ---
+    // =====================================================
+    // =====================================================
+    // =====================================================
+
+    // --- "Accept" consignment button is clicked
+
     document.getElementById('interceptor-accept-btn').addEventListener('click', async () => {
         console.log("'Accept consignment' clicked.");
 
         if (!isPriceValid()) {
-            alert("Please enter a valid resale price greater than $0.");
+            alert("Please enter a valid \nresale price greater than $0.");
             return;
         }
 
@@ -506,7 +564,8 @@
             // Use GM_setClipboard for better reliability in userscripts
             GM_setClipboard(textToCopy);
             console.log("Copied to clipboard:", textToCopy);
-            alert("Shippo will now open. The consignor's address is copied to your clipboard."); // Simple feedback
+            alert("Shippo will now open. The consignor's address is copied to your clipboard.");
+            // Simple feedback
         } else {
             console.error("Could not find the address elements to copy text from.");
             alert("Error: Could not find the content to copy.");
@@ -517,6 +576,9 @@
         hideModals();
     });
 
+
+    // --- "Publish to Shopify" button is clicked
+
     document.getElementById('interceptor-publish-btn').addEventListener('click', async () => {
         console.log("'Publish' clicked.");
 
@@ -526,7 +588,8 @@
         }
 
         if (originalButtonClicked) {
-            isPublishing = true; // Set the flag to allow the next click
+            isPublishing =
+            true; // Set the flag to allow the next click
             const resalePrice = currentModalPriceInput.value;
             await updateListingPrices(resalePrice);
 
@@ -535,12 +598,14 @@
             // Update the seller details before approving the listing
             await updateSellerInfo();
 
+
             // End of updating the seller details
             originalButtonClicked.click(); // Programmatically click the original button
             console.log("Original button action is being triggered.");
         }
         hideModals();
     });
+    // --- "Publish to Shopify" button is clicked
 
     document.getElementById('interceptor-publish-confirm-btn').addEventListener('click', async () => {
         console.log("'Publish' clicked from publish modal.");
@@ -551,7 +616,8 @@
         }
 
         if (originalButtonClicked) {
-            isPublishing = true; // Set the flag to allow the next click
+            isPublishing
+            = true; // Set the flag to allow the next click
             const resalePrice = currentModalPriceInput.value;
             await updateListingPrices(resalePrice);
 
@@ -559,6 +625,7 @@
 
             // Update the seller details before approving the listing
             await updateSellerInfo();
+
 
             // End of updating the seller details
             originalButtonClicked.click(); // Programmatically click the original button
@@ -572,19 +639,16 @@
         console.log("Modal cancelled.");
         hideModals();
     });
-
     document.getElementById('interceptor-cancel-publish-btn').addEventListener('click', () => {
         console.log("Publish Modal cancelled.");
         hideModals();
     });
-
     // --- Dynamic Button Detection ---
     // We need to watch the page for when the button is added,
     // especially on modern, dynamic websites.
     function attachListenerToButton() {
         const approveButton = document.querySelector('.fullButton');
         const denyButton = document.querySelector('.outlineButton');
-
         if (approveButton && denyButton) {
             console.log("Found approve and deny button.");
             // Check if the new button has already been added
@@ -598,7 +662,6 @@
                 newButton.style.padding = '4px 20px';
                 newButton.style.borderRadius = '20px';
                 newButton.style.textTransform = 'none';
-
                 // Add event listener to the new button to show the modal
                 newButton.addEventListener('click', (event) => {
                     // This function will handle the click and show the modal
@@ -617,7 +680,6 @@
                 approveButton.dataset.originalLabel = 'Approve';
                 approveButton.style.setProperty('padding', '4px 20px', 'important'); // Match the new button's padding
                 approveButton.style.setProperty('height', 'auto', 'important');
-
                 // Attach the original listener to this button.
                 if (!approveButton.dataset.interceptorAttached) {
                     approveButton.addEventListener('click', interceptClick, true);
@@ -648,12 +710,14 @@
                  const input = acceptModalContent.querySelector('#resale-price-input');
                  if (input) input.addEventListener('input', handlePriceInput);
             }
+
         }
         if (document.getElementById('publish-modal-backdrop') && !currentModalPriceInput) {
              const publishModalContent = document.getElementById('publish-modal-backdrop').querySelector('#interceptor-modal-content');
              if (publishModalContent) {
                 const input = publishModalContent.querySelector('#resale-price-input-publish');
                 if (input) input.addEventListener('input', handlePriceInput);
+
             }
         }
     });
@@ -662,7 +726,125 @@
         childList: true,
         subtree: true
     });
-    // Also run it once on script start, in case the button is already there.
+
+    // =====================================================
+    // =====================================================
+    // =====================================================
+    // --- Find the original Consignor info and display it in the Dashboard ---
+    // =====================================================
+    // =====================================================
+    // =====================================================
+
+
+    /**
+     * This function intercepts network requests to find the one containing the seller's email.
+     * It works by replacing the browser's default 'fetch' function with our own version.
+     */
+
+
+    console.log("Fetching the original Consignor info - 1");
+    const interceptFetch = () => {
+        console.log("Fetching the original Consignor info - 2");
+
+        const originalFetch = unsafeWindow.fetch;
+        // Store the original fetch function
+
+        // Overwrite the global fetch function
+        unsafeWindow.fetch = function(...args) {
+            // Let the original fetch do its job, and capture the promise it returns
+            const promise = originalFetch.apply(this, args);
+            // Tap into the promise to inspect the response
+            promise.then(response => {
+                // We only care about requests for the 'core' data
+                if (response.url.includes('/core')) {
+                    // Clone the response so we can read it without interfering with the page's code
+
+                    response.clone().json().then(data => {
+                        try {
+                            // Navigate through the JSON to find the email
+
+                            if (data && data.data && Array.isArray(data.data.history.listings) && data.data.history.listings.length > 0) {
+                                const lastHistoryItem = data.data.history.listings[data.data.history.listings.length - 1];
+                                if (lastHistoryItem && lastHistoryItem.seller_info && lastHistoryItem.seller_info.seller_email) {
+
+                                    console.log("Found the original Consignor: " + lastHistoryItem.seller_info.seller_email);
+
+                                    originalEmail = lastHistoryItem.seller_info.seller_email;
+                                    originalFirstName = lastHistoryItem.seller_info.seller_first_name;
+                                    originalLastName = lastHistoryItem.seller_info.seller_last_name;
+                                    originalAddress1 = lastHistoryItem.seller_info.seller_address_line1;
+                                    originalAddress2 = lastHistoryItem.seller_info.seller_address_line2;
+                                    originalCity = lastHistoryItem.seller_info.seller_city;
+                                    originalState = lastHistoryItem.seller_info.seller_state;
+                                    originalPostal = lastHistoryItem.seller_info.seller_postal;
+                                    originalPhone = lastHistoryItem.seller_info.seller_phone;
+                                }
+                            }
+                        } catch (e) {
+                            console.log("Error parsing core JSON or finding email: " + e + ". Data: " + data.history.listings);
+                        }
+                    });
+                }
+            });
+            // Return the original promise so the website functions normally
+            return promise;
+        };
+        console.log("Fetch interceptor is active.");
+    };
+
+    /**
+     * This function runs continuously to update the text on the page once
+     * the dynamic email has been found by the fetch interceptor.
+     */
+    const applyTextReplacement = () => {
+        setInterval(() => {
+            // Only proceed if we have found the email from the network request
+            if (originalEmail === null) {
+                return;
+            }
+            //
+            // Name:
+            const targetNameElement = document.querySelector(targetNameSelector);
+            // If we find the target element AND its text is not already our dynamic text...
+            if (targetNameElement && targetNameElement.textContent !== 'Original: ' + originalFirstName + ' ' + originalLastName) {
+                targetNameElement.textContent = 'Original: ' + originalFirstName + ' ' + originalLastName;
+            }
+
+            // Email:
+            const targetEmailElement = document.querySelector(targetEmailSelector);
+            // If we find the target element AND its text is not already our dynamic text...
+            if (targetEmailElement && targetEmailElement.textContent !== 'Original: ' + originalEmail) {
+                targetEmailElement.textContent = 'Original: ' + originalEmail;
+            }
+
+            // Address 1:
+            const targetAddress1Element = document.querySelector(targetAddress1Selector);
+            // If we find the target element AND its text is not already our dynamic text...
+            if (targetAddress1Element && targetAddress1Element.textContent !== 'Original: ' + originalAddress1) {
+                targetAddress1Element.textContent = 'Original: ' + originalAddress1;
+            }
+
+            // Address 2:
+            const targetAddress2Element = document.querySelector(targetAddress2Selector);
+            // If we find the target element AND its text is not already our dynamic text...
+            if (targetAddress2Element && targetAddress2Element.textContent !== originalAddress2) {
+                targetAddress2Element.textContent = originalAddress2 + ' ' + originalCity + ', ' + originalState + ' ' + originalPostal;
+            }
+
+            // Phone:
+            const targetPhoneElement = document.querySelector(targetPhoneSelector);
+            // If we find the target element AND its text is not already our dynamic text...
+            if (targetPhoneElement && targetPhoneElement.textContent !== 'Original: ' + originalPhone) {
+                targetPhoneElement.textContent = 'Original: ' + originalPhone;
+            }
+        }, CHECK_INTERVAL_MS);
+    };
+    // --- Find the original Consignor info and replace it in the dashboard ---
+    interceptFetch(); // Start listening for network requests immediately
+    applyTextReplacement();
+
+    // Listen for the "Approve" button
     attachListenerToButton();
+
 
 })();
