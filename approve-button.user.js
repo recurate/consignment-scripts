@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accept and approve button
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      1.9
 // @description  Intercepts a specific button click, shows a confirmation modal, and performs an action based on user choice.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -9,10 +9,16 @@
 // @downloadURL  https://raw.githubusercontent.com/recurate/consignment-scripts/refs/heads/main/approve-button.user.js
 // @grant        GM_addStyle
 // @grant        GM_setClipboard
+// @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
 (function() {
     'use strict';
+
+    // --- ZAPIER CONFIGURATION ---
+    // !! REPLACE THIS WITH YOUR ACTUAL ZAPIER WEBHOOK URL !!
+    const ZAPIER_WEBHOOK_URL = 'https://hooks.zapier.com/hooks/catch/YOUR/WEBHOOK/URL';
+    // --- END ZAPIER CONFIGURATION ---
 
     // The original Consignor information; before we replace it with DVF Vintage's information.
     let originalEmail = null; // This will hold the email we find.
@@ -39,12 +45,13 @@
             <div id="interceptor-modal-content">
                 <h2>Accept and generate a label</h2>
                 <p>Do you want to accept this consignment?
-You will need to generate a shipping label to email to the consignor.</p>
+                You will need to generate a shipping label to email to the consignor.</p>
                 <div id="resale-price-container">
                     <label for="resale-price-input">Resale price: $</label>
                     <input type="text" id="resale-price-input" placeholder="Sale price">
                 </div>
 
+        
                 <div id="payout-info">
                     Consignor will be paid $<span id="payout-amount">0.00</span> when the item sells.
                 </div>
@@ -53,6 +60,7 @@ You will need to generate a shipping label to email to the consignor.</p>
                     <button id="interceptor-publish-btn" style="display:none;">Publish to Shopify</button>
                     <button id="interceptor-cancel-btn">Cancel</button>
 
+                
                 </div>
             </div>
         </div>
@@ -64,12 +72,14 @@ You will need to generate a shipping label to email to the consignor.</p>
                 <h2>Publish to Shopify</h2>
                 <p>Please confirm you have inspected the item, confirmed the size, updated the condition, and printed a label.</p>
 
+              
                 <div id="resale-price-container">
                     <label for="resale-price-input-publish">Resale price: $</label>
                     <input type="text" id="resale-price-input-publish" placeholder="Sale price">
                 </div>
                 <div id="payout-info">
 
+                 
                     Consignor will be paid $<span id="payout-amount-publish">0.00</span> when the item sells.
                 </div>
                 <div id="interceptor-modal-buttons">
@@ -79,6 +89,7 @@ You will need to generate a shipping label to email to the consignor.</p>
             </div>
         </div>
 
+    
     `;
 
 
@@ -92,6 +103,7 @@ You will need to generate a shipping label to email to the consignor.</p>
             height: 100%;
             background-color: rgba(0, 0, 0, 0.6);
 
+ 
             z-index: 9999;
             display: flex;
             justify-content: center;
@@ -101,6 +113,7 @@ You will need to generate a shipping label to email to the consignor.</p>
         #interceptor-modal-content {
             background-color: white;
 
+      
             padding: 25px;
             border-radius: 8px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
@@ -110,6 +123,7 @@ You will need to generate a shipping label to email to the consignor.</p>
         #interceptor-modal-content h2 {
             margin-top: 0;
 
+       
         }
         #interceptor-modal-buttons {
             margin-top: 20px;
@@ -190,6 +204,7 @@ You will need to generate a shipping label to email to the consignor.</p>
                 'input[name="seller_last_name"]',
             ],
 
+    
             value: [
                 'DVF',
                 'Vintage',
@@ -198,6 +213,7 @@ You will need to generate a shipping label to email to the consignor.</p>
         },
         {
 
+        
             // Seller email
             buttonSelector: 'p[data-testid="seller-email-header"] button[data-testid="edit-btn"]',
             inputSelector: [ 'input[name="seller_email"]' ],
@@ -206,6 +222,7 @@ You will need to generate a shipping label to email to the consignor.</p>
         },
         {
 
+           
             // Seller phone
             buttonSelector: 'p[data-testid="seller-phone-header"] button[data-testid="edit-btn"]',
             inputSelector: [
@@ -215,6 +232,7 @@ You will need to generate a shipping label to email to the consignor.</p>
                 '888-888-8888'
             ],
 
+ 
             pressEnter: true,    // simulate Enter key after setting value
         },
         {
@@ -223,6 +241,7 @@ You will need to generate a shipping label to email to the consignor.</p>
             inputSelector: [
                 'input[name="seller_address_line1"]',
 
+     
                 'input[name="seller_address_line2"]',
                 'input[name="seller_city"]',
                 'input[name="seller_state"]',
@@ -230,12 +249,14 @@ You will need to generate a shipping label to email to the consignor.</p>
                 'input[name="seller_country"]'
             ],
             value:
+ 
             [
                 '872 Washington Street',
                 '',
                 'New York',
                 'NY',
                 '10014',
+      
                 'US'
 
             ],
@@ -338,6 +359,7 @@ You will need to generate a shipping label to email to the consignor.</p>
                 const el = document.querySelector(selector);
                 if (el) return resolve(el);
 
+         
                 if (performance.now() - start >= timeoutMs) {
                     return reject(new Error(`Timed out waiting for: ${selector}`));
                 }
@@ -346,6 +368,7 @@ You will need to generate a shipping label to email to the consignor.</p>
 
             tryFind();
 
+    
         });
     }
 
@@ -370,6 +393,7 @@ You will need to generate a shipping label to email to the consignor.</p>
             which: 13,
             bubbles: true,
 
+         
             cancelable: true,
         });
         el.dispatchEvent(evt);
@@ -535,6 +559,48 @@ You will need to generate a shipping label to email to the consignor.</p>
         const resalePrice = currentModalPriceInput.value;
         await updateListingPrices(resalePrice);
 
+        // --- Call Zapier Webhook ---
+        if (ZAPIER_WEBHOOK_URL.includes('YOUR/WEBHOOK/URL') || ZAPIER_WEBHOOK_URL === '') {
+            console.warn('[TM] Zapier URL is not set. Skipping webhook call.');
+            alert('Warning: The Zapier webhook URL is not configured in the script.');
+        } else {
+            try {
+                const payload = {
+                    originalEmail: originalEmail,
+                    originalFirstName: originalFirstName,
+                    originalLastName: originalLastName,
+                    originalAddress1: originalAddress1,
+                    originalAddress2: originalAddress2,
+                    originalCity: originalCity,
+                    originalState: originalState,
+                    originalPostal: originalPostal,
+                    originalPhone: originalPhone
+                };
+
+                console.log('[TM] Sending data to Zapier:', payload);
+
+                GM_xmlhttpRequest({
+                    method: "POST",
+                    url: ZAPIER_WEBHOOK_URL,
+                    data: JSON.stringify(payload),
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    onload: function(response) {
+                        console.log('[TM] Zapier Webhook Success:', response.responseText);
+                    },
+                    onerror: function(response) {
+                        console.error('[TM] Zapier Webhook Error:', response.statusText);
+                        alert('There was an error sending data to Zapier. Check the console.');
+                    }
+                });
+
+            } catch (err) {
+                console.error('[TM] Error preparing Zapier request:', err);
+            }
+        }
+        // --- End Zapier Webhook Call ---
+
         // Click the "Save" button after updating prices ---
         const saveButton = document.querySelector('[data-testid="save-pending-listing-btn"]');
         if (saveButton) {
@@ -589,6 +655,7 @@ You will need to generate a shipping label to email to the consignor.</p>
 
         if (originalButtonClicked) {
             isPublishing =
+ 
             true; // Set the flag to allow the next click
             const resalePrice = currentModalPriceInput.value;
             await updateListingPrices(resalePrice);
@@ -596,6 +663,7 @@ You will need to generate a shipping label to email to the consignor.</p>
             alert("We are now replacing the consignor's name, address, and email with the DVF Vintage information!"); // Simple feedback
 
             // Update the seller details before approving the listing
+   
             await updateSellerInfo();
 
 
@@ -617,6 +685,7 @@ You will need to generate a shipping label to email to the consignor.</p>
 
         if (originalButtonClicked) {
             isPublishing
+ 
             = true; // Set the flag to allow the next click
             const resalePrice = currentModalPriceInput.value;
             await updateListingPrices(resalePrice);
@@ -627,6 +696,7 @@ You will need to generate a shipping label to email to the consignor.</p>
             await updateSellerInfo();
 
 
+ 
             // End of updating the seller details
             originalButtonClicked.click(); // Programmatically click the original button
             console.log("Original button action is being triggered.");
@@ -711,6 +781,7 @@ You will need to generate a shipping label to email to the consignor.</p>
                  if (input) input.addEventListener('input', handlePriceInput);
             }
 
+ 
         }
         if (document.getElementById('publish-modal-backdrop') && !currentModalPriceInput) {
              const publishModalContent = document.getElementById('publish-modal-backdrop').querySelector('#interceptor-modal-content');
@@ -718,15 +789,14 @@ You will need to generate a shipping label to email to the consignor.</p>
                 const input = publishModalContent.querySelector('#resale-price-input-publish');
                 if (input) input.addEventListener('input', handlePriceInput);
 
+            
             }
         }
     });
-
     modalObserver.observe(document.body, {
         childList: true,
         subtree: true
     });
-
     // =====================================================
     // =====================================================
     // =====================================================
@@ -745,7 +815,6 @@ You will need to generate a shipping label to email to the consignor.</p>
     console.log("Fetching the original Consignor info - 1");
     const interceptFetch = () => {
         console.log("Fetching the original Consignor info - 2");
-
         const originalFetch = unsafeWindow.fetch;
         // Store the original fetch function
 
@@ -759,16 +828,18 @@ You will need to generate a shipping label to email to the consignor.</p>
                 if (response.url.includes('/core')) {
                     // Clone the response so we can read it without interfering with the page's code
 
+ 
                     response.clone().json().then(data => {
                         try {
                             // Navigate through the JSON to find the email
 
+                  
                             if (data && data.data && Array.isArray(data.data.history.listings) && data.data.history.listings.length > 0) {
                                 const lastHistoryItem = data.data.history.listings[data.data.history.listings.length - 1];
                                 if (lastHistoryItem && lastHistoryItem.seller_info && lastHistoryItem.seller_info.seller_email) {
 
+     
                                     console.log("Found the original Consignor: " + lastHistoryItem.seller_info.seller_email);
-
                                     originalEmail = lastHistoryItem.seller_info.seller_email;
                                     originalFirstName = lastHistoryItem.seller_info.seller_first_name;
                                     originalLastName = lastHistoryItem.seller_info.seller_last_name;
@@ -781,7 +852,8 @@ You will need to generate a shipping label to email to the consignor.</p>
                                 }
                             }
                         } catch (e) {
-                            console.log("Error parsing core JSON or finding email: " + e + ". Data: " + data.history.listings);
+                            console.log("Error parsing core JSON or finding email: " 
+                            + e + ". Data: " + data.history.listings);
                         }
                     });
                 }
@@ -803,17 +875,20 @@ You will need to generate a shipping label to email to the consignor.</p>
                 return;
             }
             //
+ 
             // Name:
             const targetNameElement = document.querySelector(targetNameSelector);
             // If we find the target element AND its text is not already our dynamic text...
             if (targetNameElement && targetNameElement.textContent !== 'Original: ' + originalFirstName + ' ' + originalLastName) {
-                targetNameElement.textContent = 'Original: ' + originalFirstName + ' ' + originalLastName;
+                targetNameElement.textContent = 'Original: ' 
+                + originalFirstName + ' ' + originalLastName;
             }
 
             // Email:
             const targetEmailElement = document.querySelector(targetEmailSelector);
             // If we find the target element AND its text is not already our dynamic text...
             if (targetEmailElement && targetEmailElement.textContent !== 'Original: ' + originalEmail) {
+      
                 targetEmailElement.textContent = 'Original: ' + originalEmail;
             }
 
@@ -840,9 +915,9 @@ You will need to generate a shipping label to email to the consignor.</p>
         }, CHECK_INTERVAL_MS);
     };
     // --- Find the original Consignor info and replace it in the dashboard ---
-    interceptFetch(); // Start listening for network requests immediately
+    interceptFetch();
+    // Start listening for network requests immediately
     applyTextReplacement();
-
     // Listen for the "Approve" button
     attachListenerToButton();
 
