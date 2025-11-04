@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accept and approve button
 // @namespace    http://tampermonkey.net/
-// @version      1.9
+// @version      1.10
 // @description  Intercepts a specific button click, shows a confirmation modal, and performs an action based on user choice.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -22,7 +22,6 @@
     let originalEmail = null; // This will hold the email we find.
     let originalFirstName = null;
     let originalLastName = null;
-
     let originalAddress1 = null;
     let originalAddress2 = null;
     let originalCity = null;
@@ -48,8 +47,6 @@
                     <label for="resale-price-input">Resale price: $</label>
                     <input type="text" id="resale-price-input" placeholder="Sale price">
                 </div>
-
-        
                 <div id="payout-info">
                     Consignor will be paid $<span id="payout-amount">0.00</span> when the item sells.
                 </div>
@@ -57,8 +54,6 @@
                     <button id="interceptor-accept-btn">Accept consignment</button>
                     <button id="interceptor-publish-btn" style="display:none;">Publish to Shopify</button>
                     <button id="interceptor-cancel-btn">Cancel</button>
-
-                
                 </div>
             </div>
         </div>
@@ -69,15 +64,11 @@
             <div id="interceptor-modal-content">
                 <h2>Publish to Shopify</h2>
                 <p>Please confirm you have inspected the item, confirmed the size, updated the condition, and printed a label.</p>
-
-              
                 <div id="resale-price-container">
                     <label for="resale-price-input-publish">Resale price: $</label>
                     <input type="text" id="resale-price-input-publish" placeholder="Sale price">
                 </div>
                 <div id="payout-info">
-
-                 
                     Consignor will be paid $<span id="payout-amount-publish">0.00</span> when the item sells.
                 </div>
                 <div id="interceptor-modal-buttons">
@@ -86,8 +77,6 @@
                 </div>
             </div>
         </div>
-
-    
     `;
 
 
@@ -100,8 +89,6 @@
             width: 100%;
             height: 100%;
             background-color: rgba(0, 0, 0, 0.6);
-
- 
             z-index: 9999;
             display: flex;
             justify-content: center;
@@ -110,8 +97,6 @@
         }
         #interceptor-modal-content {
             background-color: white;
-
-      
             padding: 25px;
             border-radius: 8px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
@@ -120,8 +105,6 @@
         }
         #interceptor-modal-content h2 {
             margin-top: 0;
-
-       
         }
         #interceptor-modal-buttons {
             margin-top: 20px;
@@ -201,8 +184,6 @@
                 'input[name="seller_first_name"]',
                 'input[name="seller_last_name"]',
             ],
-
-    
             value: [
                 'DVF',
                 'Vintage',
@@ -210,8 +191,6 @@
             pressEnter: true,    // simulate Enter key after setting value
         },
         {
-
-        
             // Seller email
             buttonSelector: 'p[data-testid="seller-email-header"] button[data-testid="edit-btn"]',
             inputSelector: [ 'input[name="seller_email"]' ],
@@ -219,8 +198,6 @@
             pressEnter: true,    // simulate Enter key after setting value
         },
         {
-
-           
             // Seller phone
             buttonSelector: 'p[data-testid="seller-phone-header"] button[data-testid="edit-btn"]',
             inputSelector: [
@@ -229,8 +206,6 @@
             value: [
                 '888-888-8888'
             ],
-
- 
             pressEnter: true,    // simulate Enter key after setting value
         },
         {
@@ -238,8 +213,6 @@
             buttonSelector: 'p[data-testid="seller-address-header"] button[data-testid="edit-btn"]',
             inputSelector: [
                 'input[name="seller_address_line1"]',
-
-     
                 'input[name="seller_address_line2"]',
                 'input[name="seller_city"]',
                 'input[name="seller_state"]',
@@ -247,16 +220,13 @@
                 'input[name="seller_country"]'
             ],
             value:
- 
             [
                 '872 Washington Street',
                 '',
                 'New York',
                 'NY',
                 '10014',
-      
                 'US'
-
             ],
             pressEnter: true,    // simulate Enter key after setting value
         },
@@ -270,7 +240,6 @@
     // small pause after click, before polling input
     const BETWEEN_STEPS_PAUSE_MS = 200;
     // small pause between steps
-
 
 
     // =====================================================
@@ -335,8 +304,7 @@
 
     // Convert class string to a valid CSS selector
     function classStringToSelector(classStr) {
-        return '.'
-        + classStr.trim().replace(/\s+/g, '.');
+        return '.' + classStr.trim().replace(/\s+/g, '.');
     }
 
 
@@ -357,7 +325,6 @@
                 const el = document.querySelector(selector);
                 if (el) return resolve(el);
 
-         
                 if (performance.now() - start >= timeoutMs) {
                     return reject(new Error(`Timed out waiting for: ${selector}`));
                 }
@@ -365,8 +332,6 @@
             };
 
             tryFind();
-
-    
         });
     }
 
@@ -390,8 +355,6 @@
             keyCode: 13,
             which: 13,
             bubbles: true,
-
-         
             cancelable: true,
         });
         el.dispatchEvent(evt);
@@ -435,11 +398,9 @@
                 await wait(BETWEEN_STEPS_PAUSE_MS);
             }
 
-
             // Small breather between steps
             await wait(BETWEEN_STEPS_PAUSE_MS);
         }
-
         console.log('[TM] Multi-Field Click & Fill: finished.');
     }
 
@@ -557,8 +518,27 @@
         const resalePrice = currentModalPriceInput.value;
         await updateListingPrices(resalePrice);
 
+        // Get the product's title
         const titleElement = document.querySelector('input[name="listing_title"]');
         const productTitle = titleElement ? titleElement.value : 'DVF Vintage Consignment Piece';
+
+        // Get the listing ID
+        const idElement = document.querySelector('.MuiTypography-root.MuiTypography-body2');
+        let idValue = 'Not Found';
+        if (idElement && idElement.innerHTML.includes('<br>')) {
+            // Split the inner HTML by the <br> tag and take the second part.
+            idValue = idElement.innerHTML.split('<br>')[1].trim();
+        } else if (idElement) {
+            // Fallback in case there is no <br> tag.
+            idValue = idElement.textContent.trim();
+        }
+
+        // Clean the Listing ID value by removing the "ID: " prefix.
+        let cleanedId = 'Not Found';
+        if (idValue !== 'Not Found') {
+            cleanedId = idValue.replace('ID:', '').trim();
+        }
+        // End of getting the listing ID
 
         // --- Call Zapier Webhook ---
         if (ZAPIER_WEBHOOK_URL.includes('YOUR/WEBHOOK/URL') || ZAPIER_WEBHOOK_URL === '') {
@@ -578,6 +558,7 @@
                     originalPhone: originalPhone,
                     consignmentPrice: resalePrice,
                     productTitle: productTitle,
+                    listingId: cleanedId
                 };
 
                 console.log('[TM] Sending data to Zapier:', payload);
@@ -657,16 +638,13 @@
         }
 
         if (originalButtonClicked) {
-            isPublishing =
- 
-            true; // Set the flag to allow the next click
+            isPublishing = true; // Set the flag to allow the next click
             const resalePrice = currentModalPriceInput.value;
             await updateListingPrices(resalePrice);
 
             alert("We are now replacing the consignor's name, address, and email with the DVF Vintage information!"); // Simple feedback
 
             // Update the seller details before approving the listing
-   
             await updateSellerInfo();
 
 
@@ -687,9 +665,7 @@
         }
 
         if (originalButtonClicked) {
-            isPublishing
- 
-            = true; // Set the flag to allow the next click
+            isPublishing = true; // Set the flag to allow the next click
             const resalePrice = currentModalPriceInput.value;
             await updateListingPrices(resalePrice);
 
@@ -697,16 +673,13 @@
 
             // Update the seller details before approving the listing
             await updateSellerInfo();
-
-
- 
+            
             // End of updating the seller details
             originalButtonClicked.click(); // Programmatically click the original button
             console.log("Original button action is being triggered.");
         }
         hideModals();
     });
-
 
     document.getElementById('interceptor-cancel-btn').addEventListener('click', () => {
         console.log("Modal cancelled.");
@@ -830,18 +803,12 @@
                 // We only care about requests for the 'core' data
                 if (response.url.includes('/core')) {
                     // Clone the response so we can read it without interfering with the page's code
-
- 
                     response.clone().json().then(data => {
                         try {
                             // Navigate through the JSON to find the email
-
-                  
                             if (data && data.data && Array.isArray(data.data.history.listings) && data.data.history.listings.length > 0) {
                                 const lastHistoryItem = data.data.history.listings[data.data.history.listings.length - 1];
                                 if (lastHistoryItem && lastHistoryItem.seller_info && lastHistoryItem.seller_info.seller_email) {
-
-     
                                     console.log("Found the original Consignor: " + lastHistoryItem.seller_info.seller_email);
                                     originalEmail = lastHistoryItem.seller_info.seller_email;
                                     originalFirstName = lastHistoryItem.seller_info.seller_first_name;
@@ -855,8 +822,7 @@
                                 }
                             }
                         } catch (e) {
-                            console.log("Error parsing core JSON or finding email: " 
-                            + e + ". Data: " + data.history.listings);
+                            console.log("Error parsing core JSON or finding email: " + e + ". Data: " + data.history.listings);
                         }
                     });
                 }
@@ -877,7 +843,6 @@
             if (originalEmail === null) {
                 return;
             }
-            //
  
             // Name:
             const targetNameElement = document.querySelector(targetNameSelector);
@@ -923,6 +888,5 @@
     applyTextReplacement();
     // Listen for the "Approve" button
     attachListenerToButton();
-
 
 })();
