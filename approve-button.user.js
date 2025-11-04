@@ -15,10 +15,8 @@
 (function() {
     'use strict';
 
-    // --- ZAPIER CONFIGURATION ---
-    // !! REPLACE THIS WITH YOUR ACTUAL ZAPIER WEBHOOK URL !!
-    const ZAPIER_WEBHOOK_URL = 'https://hooks.zapier.com/hooks/catch/YOUR/WEBHOOK/URL';
-    // --- END ZAPIER CONFIGURATION ---
+    // --- ZAPIER webhook URL ---
+    const ZAPIER_WEBHOOK_URL = 'https://hooks.zapier.com/hooks/catch/20833124/usmo7yh/';
 
     // The original Consignor information; before we replace it with DVF Vintage's information.
     let originalEmail = null; // This will hold the email we find.
