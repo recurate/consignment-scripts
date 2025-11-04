@@ -559,6 +559,9 @@
         const resalePrice = currentModalPriceInput.value;
         await updateListingPrices(resalePrice);
 
+        const titleElement = document.querySelector('input[name="listing_title"]');
+        const productTitle = titleElement ? titleElement.value : 'DVF Vintage Consignment Piece';
+
         // --- Call Zapier Webhook ---
         if (ZAPIER_WEBHOOK_URL.includes('YOUR/WEBHOOK/URL') || ZAPIER_WEBHOOK_URL === '') {
             console.warn('[TM] Zapier URL is not set. Skipping webhook call.');
@@ -574,7 +577,9 @@
                     originalCity: originalCity,
                     originalState: originalState,
                     originalPostal: originalPostal,
-                    originalPhone: originalPhone
+                    originalPhone: originalPhone,
+                    consignmentPrice: resalePrice,
+                    productTitle: productTitle,
                 };
 
                 console.log('[TM] Sending data to Zapier:', payload);
