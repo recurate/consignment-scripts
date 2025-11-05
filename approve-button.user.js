@@ -16,7 +16,8 @@
     'use strict';
 
     // --- ZAPIER webhook URL ---
-    const ZAPIER_WEBHOOK_URL = 'https://hooks.zapier.com/hooks/catch/20833124/usmo7yh/';
+    const zapierAcceptWebhookURL = 'https://hooks.zapier.com/hooks/catch/20833124/usmo7yh/';
+    const zapierPublishWebhookURL = 'https://hooks.zapier.com/hooks/catch/20833124/us54h9y/';
 
     // The original Consignor information; before we replace it with DVF Vintage's information.
     let originalEmail = null; // This will hold the email we find.
@@ -541,7 +542,7 @@
         // End of getting the listing ID
 
         // --- Call Zapier Webhook ---
-        if (ZAPIER_WEBHOOK_URL.includes('YOUR/WEBHOOK/URL') || ZAPIER_WEBHOOK_URL === '') {
+        if (zapierAcceptWebhookURL.includes('YOUR/WEBHOOK/URL') || zapierAcceptWebhookURL === '') {
             console.warn('[TM] Zapier URL is not set. Skipping webhook call.');
             alert('Warning: The Zapier webhook URL is not configured in the script.');
         } else {
@@ -565,7 +566,7 @@
 
                 GM_xmlhttpRequest({
                     method: "POST",
-                    url: ZAPIER_WEBHOOK_URL,
+                    url: zapierAcceptWebhookURL,
                     data: JSON.stringify(payload),
                     headers: {
                         "Content-Type": "application/json"
@@ -629,31 +630,33 @@
 
     // --- "Publish to Shopify" button is clicked
 
-    document.getElementById('interceptor-publish-btn').addEventListener('click', async () => {
-        console.log("'Publish' clicked.");
+    // document.getElementById('interceptor-publish-btn').addEventListener('click', async () => {
+    //    console.log("'Publish' clicked.");
 
-        if (!isPriceValid()) {
-            alert("Please enter a valid resale price greater than $0.");
-            return;
-        }
+    //    if (!isPriceValid()) {
+    //        alert("Please enter a valid resale price greater than $0.");
+    //        return;
+    //    }
 
-        if (originalButtonClicked) {
-            isPublishing = true; // Set the flag to allow the next click
-            const resalePrice = currentModalPriceInput.value;
-            await updateListingPrices(resalePrice);
+    //    if (originalButtonClicked) {
+    //        isPublishing = true; // Set the flag to allow the next click
+    //        const resalePrice = currentModalPriceInput.value;
+    //        await updateListingPrices(resalePrice);
 
-            alert("We are now replacing the consignor's name, address, and email with the DVF Vintage information!"); // Simple feedback
+    //        alert("We are now replacing the consignor's name, address, and email with the DVF Vintage information!"); // Simple feedback
 
             // Update the seller details before approving the listing
-            await updateSellerInfo();
+    //        await updateSellerInfo();
 
 
             // End of updating the seller details
-            originalButtonClicked.click(); // Programmatically click the original button
-            console.log("Original button action is being triggered.");
-        }
-        hideModals();
-    });
+    //        originalButtonClicked.click(); // Programmatically click the original button
+    //        console.log("Original button action is being triggered.");
+    //    }
+    //    hideModals();
+    //});
+
+
     // --- "Publish to Shopify" button is clicked
 
     document.getElementById('interceptor-publish-confirm-btn').addEventListener('click', async () => {
@@ -673,7 +676,62 @@
 
             // Update the seller details before approving the listing
             await updateSellerInfo();
-            
+
+
+
+            // Get the listing ID
+            const idElement = document.querySelector('.MuiTypography-root.MuiTypography-body2');
+            let idValue = 'Not Found';
+            if (idElement && idElement.innerHTML.includes('<br>')) {
+                // Split the inner HTML by the <br> tag and take the second part.
+                idValue = idElement.innerHTML.split('<br>')[1].trim();
+            } else if (idElement) {
+                // Fallback in case there is no <br> tag.
+                idValue = idElement.textContent.trim();
+            }
+
+            // Clean the Listing ID value by removing the "ID: " prefix.
+            let cleanedId = 'Not Found';
+            if (idValue !== 'Not Found') {
+                cleanedId = idValue.replace('ID:', '').trim();
+            }
+            // End of getting the listing ID
+
+            // --- Call Zapier Webhook ---
+            if (zapierPublishWebhookURL.includes('YOUR/WEBHOOK/URL') || zapierPublishWebhookURL === '') {
+                console.warn('[TM] Zapier Publish URL is not set. Skipping webhook call.');
+                alert('Warning: The Zapier Publish webhook URL is not configured in the script.');
+            } else {
+                try {
+                    const payload = {
+                        listingId: cleanedId
+                    };
+
+                    console.log('[TM] Sending data to Zapier Publish:', payload);
+
+                    GM_xmlhttpRequest({
+                        method: "POST",
+                        url: zapierPublishWebhookURL,
+                        data: JSON.stringify(payload),
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        onload: function(response) {
+                            console.log('[TM] Zapier Publish Webhook Success:', response.responseText);
+                        },
+                        onerror: function(response) {
+                            console.error('[TM] Zapier Publish Webhook Error:', response.statusText);
+                            alert('There was an error sending data to Zapier. Check the console.');
+                        }
+                    });
+
+                } catch (err) {
+                    console.error('[TM] Error preparing Zapier Publish request:', err);
+                }
+            }
+            // --- End Zapier Publish Webhook Call ---
+
+
             // End of updating the seller details
             originalButtonClicked.click(); // Programmatically click the original button
             console.log("Original button action is being triggered.");
@@ -757,7 +815,7 @@
                  if (input) input.addEventListener('input', handlePriceInput);
             }
 
- 
+
         }
         if (document.getElementById('publish-modal-backdrop') && !currentModalPriceInput) {
              const publishModalContent = document.getElementById('publish-modal-backdrop').querySelector('#interceptor-modal-content');
@@ -765,7 +823,7 @@
                 const input = publishModalContent.querySelector('#resale-price-input-publish');
                 if (input) input.addEventListener('input', handlePriceInput);
 
-            
+
             }
         }
     });
@@ -843,12 +901,12 @@
             if (originalEmail === null) {
                 return;
             }
- 
+
             // Name:
             const targetNameElement = document.querySelector(targetNameSelector);
             // If we find the target element AND its text is not already our dynamic text...
             if (targetNameElement && targetNameElement.textContent !== 'Original: ' + originalFirstName + ' ' + originalLastName) {
-                targetNameElement.textContent = 'Original: ' 
+                targetNameElement.textContent = 'Original: '
                 + originalFirstName + ' ' + originalLastName;
             }
 
@@ -856,7 +914,7 @@
             const targetEmailElement = document.querySelector(targetEmailSelector);
             // If we find the target element AND its text is not already our dynamic text...
             if (targetEmailElement && targetEmailElement.textContent !== 'Original: ' + originalEmail) {
-      
+
                 targetEmailElement.textContent = 'Original: ' + originalEmail;
             }
 
