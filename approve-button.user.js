@@ -29,6 +29,7 @@
     let originalState = null;
     let originalPostal = null;
     let originalPhone = null;
+    let originalSellerID = null;
 
 
     // Targets to display the original Consignor info
@@ -559,7 +560,8 @@
                     originalPhone: originalPhone,
                     consignmentPrice: resalePrice,
                     productTitle: productTitle,
-                    listingId: cleanedId
+                    listingId: cleanedId,
+                    sellerId: originalSellerID
                 };
 
                 console.log('[TM] Sending data to Zapier:', payload);
@@ -595,35 +597,37 @@
             console.warn("Could not find the 'Save' button with data-testid='save-pending-listing-btn'.");
         }
 
+        alert("We have now generated a shipping label and emailed it to the consignor at " + originalEmail);
+
         // Select the elements using their data-testid attributes
-        const addressLine1 = document.querySelector('[data-testid="seller-address-line-1"]');
-        const addressLine2 = document.querySelector('[data-testid="seller-address-line-2"]');
+//        const addressLine1 = document.querySelector('[data-testid="seller-address-line-1"]');
+//        const addressLine2 = document.querySelector('[data-testid="seller-address-line-2"]');
 
         // Construct the text to copy
-        let textToCopy = '';
-        if (addressLine1 && addressLine1.innerText) {
-            textToCopy += addressLine1.innerText.trim();
-        }
-        if (addressLine2 && addressLine2.innerText) {
-            if (textToCopy !== '') {
-                textToCopy += ' ';
-            }
-            textToCopy += addressLine2.innerText.trim();
-        }
+//        let textToCopy = '';
+//        if (addressLine1 && addressLine1.innerText) {
+//            textToCopy += addressLine1.innerText.trim();
+//        }
+//        if (addressLine2 && addressLine2.innerText) {
+//            if (textToCopy !== '') {
+//                textToCopy += ' ';
+//            }
+//            textToCopy += addressLine2.innerText.trim();
+//        }
 
-        if (textToCopy) {
-            // Use GM_setClipboard for better reliability in userscripts
-            GM_setClipboard(textToCopy);
-            console.log("Copied to clipboard:", textToCopy);
-            alert("Shippo will now open. The consignor's address is copied to your clipboard.");
-            // Simple feedback
-        } else {
-            console.error("Could not find the address elements to copy text from.");
-            alert("Error: Could not find the content to copy.");
-        }
+//        if (textToCopy) {
+//            // Use GM_setClipboard for better reliability in userscripts
+//            GM_setClipboard(textToCopy);
+//            console.log("Copied to clipboard:", textToCopy);
+//            alert("Shippo will now open. The consignor's address is copied to your clipboard.");
+//            // Simple feedback
+//        } else {
+//            console.error("Could not find the address elements to copy text from.");
+//            alert("Error: Could not find the content to copy.");
+//        }
 
         // Open the new URL in a new tab
-        window.open('https://apps.goshippo.com/orders/create', '_blank');
+//        window.open('https://apps.goshippo.com/orders/create', '_blank');
         hideModals();
     });
 
@@ -877,6 +881,7 @@
                                     originalState = lastHistoryItem.seller_info.seller_state;
                                     originalPostal = lastHistoryItem.seller_info.seller_postal;
                                     originalPhone = lastHistoryItem.seller_info.seller_phone;
+                                    originalSellerID = lastHistoryItem.seller_info.seller_id;
                                 }
                             }
                         } catch (e) {
