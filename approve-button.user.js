@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accept and approve button
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @description  Intercepts a specific button click, shows a confirmation modal, and performs an action based on user choice.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
