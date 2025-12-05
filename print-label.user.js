@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Print label button
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Adds a button to extract page data into a printable popup with a QR code.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -29,27 +29,24 @@
   };
 
   window.addEventListener('popstate', fire);   // back/forward
-  window.addEventListener('hashchange', fire); // hash-based routers
+  window.addEventListener('hashchange', fire);
 })(window.history);
 
 // 2) Route guard — only run on certain paths
 function isListingPage() {
-  // tweak this condition to your exact route needs
-  return window.location.pathname.includes('/listings/');
+  // UPDATED: Check for /listings/ followed by at least one character (the UUID).
+  // This ensures it returns FALSE for ".../listings" and TRUE for ".../listings/123"
+  return /\/listings\/.+/.test(window.location.pathname);
 }
 
 
 // 3) Setup and teardown so features only exist on target pages
-let teardownFns = []; // keep references to remove listeners, observers, DOM, etc.
+let teardownFns = [];
 
 function setupForListing() {
   // Avoid double-setup
   if (document.documentElement.dataset.tmListingSetup === '1') return;
   document.documentElement.dataset.tmListingSetup = '1';
-
-  // …create your modal, attach button listeners, observers, etc.
-
-
 
     // --- 1. Create the Button Element ---
     const extractButton = document.createElement('button');
@@ -57,9 +54,6 @@ function setupForListing() {
     extractButton.textContent = 'Print label';
 
     // --- 2. Style the Button ---
-    // We use CSS to position it in the lower-right corner and make it look nice.
-    // 'position: fixed' keeps it on the screen even when you scroll.
-    // 'zIndex' ensures it appears on top of most other page elements.
     Object.assign(extractButton.style, {
         position: 'fixed',
         bottom: '20px',
@@ -75,7 +69,6 @@ function setupForListing() {
     });
 
     // --- 3. Define the Button's Action ---
-    // This function will be called when the button is clicked.
     function openDataPopup() {
         // --- A. Find and extract the required values from the main page ---
 
@@ -99,21 +92,21 @@ function setupForListing() {
         // 1b. Generate a QR code from the cleaned ID using a public API.
         const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(cleanedId)}`;
 
-
-        // 2. Get the Product Name from the input with name="listing_title".
+        // 2. Get the Product Name
         const productNameElement = document.querySelector('input[name="listing_title"]');
         const productName = productNameElement ? productNameElement.value : 'Not Found';
 
-        // 3. Get Option 1 from the input with name="option_value_0".
+        // 3. Get Option 1
         const option1Element = document.querySelector('input[name="option_value_0"]');
         const option1 = option1Element ? option1Element.value : 'Not Found';
 
-        // 4. Get Option 2 from the input with name="option_value_1".
+        // 4. Get Option 2
         const option2Element = document.querySelector('input[name="option_value_1"]');
         const option2 = option2Element ? option2Element.value : 'Not Found';
 
-        // 5. Get the Consignor from the element with data-testid="seller_email".
+        // 5. Get the Consignor
         const consignorElement = document.querySelector('[data-testid="seller_email"]');
+        // Note: variable 'consignor' is extracted but not currently used in the popup HTML below
         const consignor = consignorElement ? consignorElement.textContent.trim() : 'Not Found';
 
 
@@ -128,7 +121,6 @@ function setupForListing() {
         const shippingPriceInput = document.querySelector('input[name="shipping_price"]');
         let tagPrice = 0;
         if (listingPriceInput && shippingPriceInput) {
-            // Use '|| 0' to gracefully handle empty or invalid values
             const listingPrice = parseFloat(listingPriceInput.value) || 0;
             const shippingPrice = parseFloat(shippingPriceInput.value) || 0;
             tagPrice = listingPrice + shippingPrice;
@@ -136,10 +128,6 @@ function setupForListing() {
 
         // Format for display
         const displayPrice = `$${tagPrice.toFixed(2)}`;
-
-
-        // --- B. Create and display the popup with the extracted data ---
-        // ... (rest of the function starts here ) ...
 
         // Check if the popup was successfully created (i.e., not blocked by a popup blocker)
         if (popup) {
@@ -189,45 +177,39 @@ function setupForListing() {
                 popup.print();
             };
         } else {
-            // In case the user has a popup blocker enabled.
             console.log('Popup was blocked. Please allow popups for this site.');
         }
     }
 
     // --- 4. Attach the Action to the Button ---
-    // We add an event listener that calls our function on a 'click' event.
     extractButton.addEventListener('click', openDataPopup);
 
     // --- 5. Add the Button to the Page ---
-    // Finally, we append our newly created button to the body of the webpage.
     document.body.appendChild(extractButton);
 
+    // OBSERVER: Re-attach if DOM changes (SPA behavior)
+    // Note: extractButton is already in the DOM, but if the app re-renders the body content, we might lose it.
+    // The previous script had 'attachListenerToButton' here which was undefined.
+    // We use a MutationObserver to ensure our specific button stays or logic persists.
+    const mo = new MutationObserver(() => {
+        if (!document.getElementById("print-label-btn")) {
+             document.body.appendChild(extractButton);
+        }
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
 
-
-
-  // Example: attach your click interceptor only on listing pages:
-  attachListenerToButton(); // your existing function
-  const mo = new MutationObserver(() => attachListenerToButton());
-  mo.observe(document.body, { childList: true, subtree: true });
-
-  teardownFns.push(() => mo.disconnect());
-  teardownFns.push(() => document.getElementById("print-label-btn")?.remove());
-  teardownFns.push(() => {
-    // remove data flag
-    delete document.documentElement.dataset.tmListingSetup;
-  });
-
-  // if you add DOM (modal, styles), store removers here too
+    // Cleanup tasks for when we leave the page
+    teardownFns.push(() => mo.disconnect());
+    teardownFns.push(() => document.getElementById("print-label-btn")?.remove());
+    teardownFns.push(() => {
+        delete document.documentElement.dataset.tmListingSetup;
+    });
 }
 
 function teardownPageFeatures() {
   while (teardownFns.length) {
     try { teardownFns.pop()(); } catch (e) {}
   }
-  // Clean up any DOM you injected if needed
-  // e.g., remove modal/backdrop if it exists
-  const modal = document.getElementById('interceptor-modal-backdrop');
-  if (modal) modal.remove();
 }
 
 // 4) React to URL changes
@@ -242,6 +224,3 @@ async function onRouteChange() {
 // Run once on initial load, then on every SPA navigation:
 onRouteChange();
 window.addEventListener('tm-url-change', onRouteChange);
-
-
-
