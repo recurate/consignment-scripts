@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accept and approve button
 // @namespace    http://tampermonkey.net/
-// @version      2.3
+// @version      2.4
 // @description  Intercepts a specific button click, shows a confirmation modal, and performs an action based on user choice. Handles resource navigation correctly.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -10,6 +10,7 @@
 // @grant        GM_addStyle
 // @grant        GM_setClipboard
 // @grant        GM_xmlhttpRequest
+// @run-at       document-start
 // ==/UserScript==
 
 (function() {
@@ -141,17 +142,70 @@
 
 
     // =====================================================
-    // --- Add Modals ---
+    // --- Modal references (set in initDOM when DOM is ready) ---
     // =====================================================
-    document.body.insertAdjacentHTML('beforeend', modalAcceptHTML);
-    document.body.insertAdjacentHTML('beforeend', modalPublishHTML);
-
-    const acceptModal = document.getElementById('accept-modal-backdrop');
-    const publishModal = document.getElementById('publish-modal-backdrop');
+    let acceptModal = null;
+    let publishModal = null;
     let originalButtonClicked = null;
     let isPublishing = false;
     let currentModalPriceInput;
     let currentModalPayoutSpan;
+
+    // =====================================================
+    // --- DOM Fallback: Read seller info directly from page ---
+    // =====================================================
+    function readSellerDataFromDOM() {
+        console.log('[TM] Attempting to read seller data directly from DOM...');
+        const emailEl = document.querySelector(targetEmailSelector);
+        const nameEl = document.querySelector(targetNameSelector);
+        const address1El = document.querySelector(targetAddress1Selector);
+        const address2El = document.querySelector(targetAddress2Selector);
+        const phoneEl = document.querySelector(targetPhoneSelector);
+
+        // Get raw text — strip any "Original: " prefix our script may have added
+        const stripPrefix = (text) => text ? text.replace(/^Original:\s*/i, '').trim() : '';
+
+        const email = stripPrefix(emailEl?.textContent);
+        const fullName = stripPrefix(nameEl?.textContent);
+        const address1 = stripPrefix(address1El?.textContent);
+        const address2Raw = address2El?.textContent?.trim() || '';
+        const phone = stripPrefix(phoneEl?.textContent);
+
+        if (!email) {
+            console.warn('[TM] DOM fallback: Could not find seller email on page.');
+            return null;
+        }
+
+        // Parse name into first/last
+        const nameParts = fullName.split(/\s+/);
+        const firstName = nameParts[0] || '';
+        const lastName = nameParts.slice(1).join(' ') || '';
+
+        // Parse address2 field — it may contain "line2 city, state postal"
+        let address2 = '', city = '', state = '', postal = '';
+        // Try to parse "City, ST 12345" or "line2 City, ST 12345"
+        const addrMatch = address2Raw.match(/^(.*?)?\s*([A-Za-z\s]+),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+        if (addrMatch) {
+            address2 = (addrMatch[1] || '').trim();
+            city = (addrMatch[2] || '').trim();
+            state = (addrMatch[3] || '').trim();
+            postal = (addrMatch[4] || '').trim();
+        } else {
+            address2 = address2Raw;
+        }
+
+        // Try to get seller_id from the page URL or other source
+        const urlMatch = window.location.href.match(/\/sellers?\/(\d+)/i);
+        const sellerId = urlMatch ? urlMatch[1] : '';
+
+        const domData = {
+            email, firstName, lastName,
+            address1, address2, city, state, postal,
+            phone, sellerId
+        };
+        console.log('[TM] DOM fallback data:', domData);
+        return domData;
+    }
 
     // Helper: Extract Listing ID from DOM
     function getListingIdFromScreen() {
@@ -350,156 +404,171 @@
 
 
     // =====================================================
-    // --- Modal Button Event Listeners ---
+    // --- Modal Button Event Listeners (attached in initDOM) ---
     // =====================================================
 
-    // --- "Accept" consignment button is clicked
-    document.getElementById('interceptor-accept-btn').addEventListener('click', async () => {
-        console.log("'Accept consignment' clicked.");
+    function attachModalListeners() {
+        // --- "Accept" consignment button is clicked
+        document.getElementById('interceptor-accept-btn').addEventListener('click', async () => {
+            console.log("'Accept consignment' clicked.");
 
-        if (!isPriceValid()) {
-            alert("Please enter a valid \nresale price greater than $0.");
-            return;
-        }
-
-        // 1. Get Listing ID currently on screen
-        const cleanedId = getListingIdFromScreen();
-        if (!cleanedId) {
-            alert("Could not determine Listing ID from the page. Please refresh.");
-            return;
-        }
-
-        // 2. Look up the original consignor data in our CACHE
-        const originalData = listingDataCache[cleanedId];
-
-        if (!originalData) {
-            console.warn(`[TM] No cached data found for Listing ID: ${cleanedId}`);
-            alert(`Error: Original consignor data for Listing ID ${cleanedId} was not captured.\n\nPlease refresh the page to ensure the data is loaded, then try again.`);
-            return;
-        }
-
-        const resalePrice = currentModalPriceInput.value;
-        await updateListingPrices(resalePrice);
-
-        const titleElement = document.querySelector('input[name="listing_title"]');
-        const productTitle = titleElement ? titleElement.value : 'DVF Vintage Consignment Piece';
-
-
-        // --- Call Zapier Webhook ---
-        if (zapierAcceptWebhookURL.includes('YOUR/WEBHOOK/URL') || zapierAcceptWebhookURL === '') {
-            console.warn('[TM] Zapier URL is not set. Skipping webhook call.');
-            alert('Warning: The Zapier webhook URL is not configured in the script.');
-        } else {
-            try {
-                // Use the data from the CACHE, not global variables
-                const payload = {
-                    originalEmail: originalData.email,
-                    originalFirstName: originalData.firstName,
-                    originalLastName: originalData.lastName,
-                    originalAddress1: originalData.address1,
-                    originalAddress2: originalData.address2,
-                    originalCity: originalData.city,
-                    originalState: originalData.state,
-                    originalPostal: originalData.postal,
-                    originalPhone: originalData.phone,
-                    consignmentPrice: resalePrice,
-                    productTitle: productTitle,
-                    listingId: cleanedId,
-                    sellerId: originalData.sellerId
-                };
-                console.log('[TM] Sending data to Zapier:', payload);
-
-                GM_xmlhttpRequest({
-                    method: "POST",
-                    url: zapierAcceptWebhookURL,
-                    data: JSON.stringify(payload),
-                    headers: { "Content-Type": "application/json" },
-                    onload: function(response) {
-                        console.log('[TM] Zapier Webhook Success:', response.responseText);
-                    },
-                    onerror: function(response) {
-                        console.error('[TM] Zapier Webhook Error:', response.statusText);
-                        alert('There was an error sending data to Zapier. Check the console.');
-                    }
-                });
-            } catch (err) {
-                console.error('[TM] Error preparing Zapier request:', err);
+            if (!isPriceValid()) {
+                alert("Please enter a valid \nresale price greater than $0.");
+                return;
             }
-        }
 
-        // Click the "Save" button after updating prices
-        const saveButton = document.querySelector('[data-testid="save-pending-listing-btn"]');
-        if (saveButton) {
-            saveButton.click();
-            console.log("Simulated click on 'Save' button.");
-        } else {
-            console.warn("Could not find the 'Save' button.");
-        }
-
-        alert("We have now generated a shipping label and emailed it to the consignor at " + originalData.email);
-        hideModals();
-    });
-
-    // --- "Publish to Shopify" button is clicked
-    document.getElementById('interceptor-publish-confirm-btn').addEventListener('click', async () => {
-        console.log("'Publish' clicked from publish modal.");
-
-        if (!isPriceValid()) {
-            alert("Please enter a valid resale price greater than $0.");
-            return;
-        }
-
-        if (originalButtonClicked) {
-            isPublishing = true;
-            const resalePrice = currentModalPriceInput.value;
-            await updateListingPrices(resalePrice);
-
-            alert("Updating seller information!");
-
-            await updateSellerInfo();
-
+            // 1. Get Listing ID currently on screen
             const cleanedId = getListingIdFromScreen();
+            if (!cleanedId) {
+                alert("Could not determine Listing ID from the page. Please refresh.");
+                return;
+            }
 
-            // --- Call Zapier Webhook ---
-            if (zapierPublishWebhookURL.includes('YOUR/WEBHOOK/URL') || zapierPublishWebhookURL === '') {
-                console.warn('[TM] Zapier Publish URL is not set.');
-                alert('Warning: The Zapier Publish webhook URL is not configured.');
-            } else {
-                try {
-                    const payload = {
-                        listingId: cleanedId || 'Not Found'
-                    };
-                    console.log('[TM] Sending data to Zapier Publish:', payload);
+            // 2. Look up the original consignor data in our CACHE, with DOM fallback
+            let originalData = listingDataCache[cleanedId];
 
-                    GM_xmlhttpRequest({
-                        method: "POST",
-                        url: zapierPublishWebhookURL,
-                        data: JSON.stringify(payload),
-                        headers: { "Content-Type": "application/json" },
-                        onload: function(response) {
-                            console.log('[TM] Zapier Publish Webhook Success:', response.responseText);
-                        },
-                        onerror: function(response) {
-                            console.error('[TM] Zapier Publish Webhook Error:', response.statusText);
-                        }
-                    });
-                } catch (err) {
-                    console.error('[TM] Error preparing Zapier Publish request:', err);
+            if (!originalData) {
+                const cachedKeys = Object.keys(listingDataCache);
+                console.warn(`[TM] No cached data found for Listing ID: "${cleanedId}"`);
+                console.warn(`[TM] Cache currently contains keys: [${cachedKeys.map(k => `"${k}"`).join(', ')}]`);
+                console.log('[TM] Attempting DOM fallback to read seller data from page...');
+
+                // Fallback: read the seller info directly from the DOM
+                originalData = readSellerDataFromDOM();
+
+                if (originalData) {
+                    // Cache it so subsequent actions don't need fallback again
+                    listingDataCache[cleanedId] = originalData;
+                    console.log(`[TM] DOM fallback succeeded. Data cached for Listing ID: ${cleanedId}`);
+                } else {
+                    alert(`Error: Could not read consignor data for Listing ID "${cleanedId}".\n\nThe seller info could not be found on the page. Please refresh and try again.`);
+                    return;
                 }
             }
 
-            originalButtonClicked.click();
-            console.log("Original button action is being triggered.");
-        }
-        hideModals();
-    });
+            const resalePrice = currentModalPriceInput.value;
+            await updateListingPrices(resalePrice);
 
-    document.getElementById('interceptor-cancel-btn').addEventListener('click', () => {
-        hideModals();
-    });
-    document.getElementById('interceptor-cancel-publish-btn').addEventListener('click', () => {
-        hideModals();
-    });
+            const titleElement = document.querySelector('input[name="listing_title"]');
+            const productTitle = titleElement ? titleElement.value : 'DVF Vintage Consignment Piece';
+
+
+            // --- Call Zapier Webhook ---
+            if (zapierAcceptWebhookURL.includes('YOUR/WEBHOOK/URL') || zapierAcceptWebhookURL === '') {
+                console.warn('[TM] Zapier URL is not set. Skipping webhook call.');
+                alert('Warning: The Zapier webhook URL is not configured in the script.');
+            } else {
+                try {
+                    // Use the data from the CACHE, not global variables
+                    const payload = {
+                        originalEmail: originalData.email,
+                        originalFirstName: originalData.firstName,
+                        originalLastName: originalData.lastName,
+                        originalAddress1: originalData.address1,
+                        originalAddress2: originalData.address2,
+                        originalCity: originalData.city,
+                        originalState: originalData.state,
+                        originalPostal: originalData.postal,
+                        originalPhone: originalData.phone,
+                        consignmentPrice: resalePrice,
+                        productTitle: productTitle,
+                        listingId: cleanedId,
+                        sellerId: originalData.sellerId
+                    };
+                    console.log('[TM] Sending data to Zapier:', payload);
+
+                    GM_xmlhttpRequest({
+                        method: "POST",
+                        url: zapierAcceptWebhookURL,
+                        data: JSON.stringify(payload),
+                        headers: { "Content-Type": "application/json" },
+                        onload: function(response) {
+                            console.log('[TM] Zapier Webhook Success:', response.responseText);
+                        },
+                        onerror: function(response) {
+                            console.error('[TM] Zapier Webhook Error:', response.statusText);
+                            alert('There was an error sending data to Zapier. Check the console.');
+                        }
+                    });
+                } catch (err) {
+                    console.error('[TM] Error preparing Zapier request:', err);
+                }
+            }
+
+            // Click the "Save" button after updating prices
+            const saveButton = document.querySelector('[data-testid="save-pending-listing-btn"]');
+            if (saveButton) {
+                saveButton.click();
+                console.log("Simulated click on 'Save' button.");
+            } else {
+                console.warn("Could not find the 'Save' button.");
+            }
+
+            alert("We have now generated a shipping label and emailed it to the consignor at " + originalData.email);
+            hideModals();
+        });
+
+        // --- "Publish to Shopify" button is clicked
+        document.getElementById('interceptor-publish-confirm-btn').addEventListener('click', async () => {
+            console.log("'Publish' clicked from publish modal.");
+
+            if (!isPriceValid()) {
+                alert("Please enter a valid resale price greater than $0.");
+                return;
+            }
+
+            if (originalButtonClicked) {
+                isPublishing = true;
+                const resalePrice = currentModalPriceInput.value;
+                await updateListingPrices(resalePrice);
+
+                alert("Updating seller information!");
+
+                await updateSellerInfo();
+
+                const cleanedId = getListingIdFromScreen();
+
+                // --- Call Zapier Webhook ---
+                if (zapierPublishWebhookURL.includes('YOUR/WEBHOOK/URL') || zapierPublishWebhookURL === '') {
+                    console.warn('[TM] Zapier Publish URL is not set.');
+                    alert('Warning: The Zapier Publish webhook URL is not configured.');
+                } else {
+                    try {
+                        const payload = {
+                            listingId: cleanedId || 'Not Found'
+                        };
+                        console.log('[TM] Sending data to Zapier Publish:', payload);
+
+                        GM_xmlhttpRequest({
+                            method: "POST",
+                            url: zapierPublishWebhookURL,
+                            data: JSON.stringify(payload),
+                            headers: { "Content-Type": "application/json" },
+                            onload: function(response) {
+                                console.log('[TM] Zapier Publish Webhook Success:', response.responseText);
+                            },
+                            onerror: function(response) {
+                                console.error('[TM] Zapier Publish Webhook Error:', response.statusText);
+                            }
+                        });
+                    } catch (err) {
+                        console.error('[TM] Error preparing Zapier Publish request:', err);
+                    }
+                }
+
+                originalButtonClicked.click();
+                console.log("Original button action is being triggered.");
+            }
+            hideModals();
+        });
+
+        document.getElementById('interceptor-cancel-btn').addEventListener('click', () => {
+            hideModals();
+        });
+        document.getElementById('interceptor-cancel-publish-btn').addEventListener('click', () => {
+            hideModals();
+        });
+    }
 
     // --- Dynamic Button Detection ---
     function attachListenerToButton() {
@@ -538,28 +607,30 @@
         }
     }
 
-    const observer = new MutationObserver((mutations) => {
-       attachListenerToButton();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    function attachObservers() {
+        const observer = new MutationObserver((mutations) => {
+           attachListenerToButton();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
 
-    const modalObserver = new MutationObserver(() => {
-        if (document.getElementById('accept-modal-backdrop') && !currentModalPriceInput) {
-            const acceptModalContent = document.getElementById('accept-modal-backdrop').querySelector('#interceptor-modal-content');
-            if (acceptModalContent) {
-                 const input = acceptModalContent.querySelector('#resale-price-input');
-                 if (input) input.addEventListener('input', handlePriceInput);
+        const modalObserver = new MutationObserver(() => {
+            if (document.getElementById('accept-modal-backdrop') && !currentModalPriceInput) {
+                const acceptModalContent = document.getElementById('accept-modal-backdrop').querySelector('#interceptor-modal-content');
+                if (acceptModalContent) {
+                     const input = acceptModalContent.querySelector('#resale-price-input');
+                     if (input) input.addEventListener('input', handlePriceInput);
+                }
             }
-        }
-        if (document.getElementById('publish-modal-backdrop') && !currentModalPriceInput) {
-             const publishModalContent = document.getElementById('publish-modal-backdrop').querySelector('#interceptor-modal-content');
-             if (publishModalContent) {
-                const input = publishModalContent.querySelector('#resale-price-input-publish');
-                if (input) input.addEventListener('input', handlePriceInput);
+            if (document.getElementById('publish-modal-backdrop') && !currentModalPriceInput) {
+                 const publishModalContent = document.getElementById('publish-modal-backdrop').querySelector('#interceptor-modal-content');
+                 if (publishModalContent) {
+                    const input = publishModalContent.querySelector('#resale-price-input-publish');
+                    if (input) input.addEventListener('input', handlePriceInput);
+                }
             }
-        }
-    });
-    modalObserver.observe(document.body, { childList: true, subtree: true });
+        });
+        modalObserver.observe(document.body, { childList: true, subtree: true });
+    }
 
 
     // =====================================================
@@ -576,41 +647,8 @@
             promise.then(response => {
                 if (response.url.includes('/core')) {
                     response.clone().json().then(data => {
-                        try {
-                            if (data && data.data && Array.isArray(data.data.history.listings) && data.data.history.listings.length > 0) {
-                                const lastHistoryItem = data.data.history.listings[data.data.history.listings.length - 1];
-
-                                if (lastHistoryItem && lastHistoryItem.seller_info && lastHistoryItem.seller_info.seller_email) {
-                                    // Try to find the unique ID for this listing in the history item
-                                    // This ID is used as the key for our cache
-                                    const itemId = lastHistoryItem.id || lastHistoryItem.listing_id || lastHistoryItem.listingId;
-
-                                    if (itemId) {
-                                        const dictKey = String(itemId).trim();
-                                        console.log(`[TM] Caching data for Listing ID: ${dictKey}`);
-
-                                        // Store into our dictionary
-                                        listingDataCache[dictKey] = {
-                                            email: lastHistoryItem.seller_info.seller_email,
-                                            firstName: lastHistoryItem.seller_info.seller_first_name,
-                                            lastName: lastHistoryItem.seller_info.seller_last_name,
-                                            address1: lastHistoryItem.seller_info.seller_address_line1,
-                                            address2: lastHistoryItem.seller_info.seller_address_line2,
-                                            city: lastHistoryItem.seller_info.seller_city,
-                                            state: lastHistoryItem.seller_info.seller_state,
-                                            postal: lastHistoryItem.seller_info.seller_postal,
-                                            phone: lastHistoryItem.seller_info.seller_phone,
-                                            sellerId: lastHistoryItem.seller_info.seller_id
-                                        };
-                                    } else {
-                                        console.warn("[TM] Found seller info, but could not find a Listing ID to key it with.");
-                                    }
-                                }
-                            }
-                        } catch (e) {
-                            console.log("Error parsing core JSON or finding email: " + e);
-                        }
-                    });
+                        cacheFromApiData(data);
+                    }).catch(() => {});
                 }
             });
             return promise;
@@ -667,9 +705,105 @@
         }, CHECK_INTERVAL_MS);
     };
 
+    // --- Helper to cache data extracted from /core API responses ---
+    function cacheFromApiData(data) {
+        try {
+            if (data && data.data && data.data.history && Array.isArray(data.data.history.listings) && data.data.history.listings.length > 0) {
+                const lastHistoryItem = data.data.history.listings[data.data.history.listings.length - 1];
+
+                if (lastHistoryItem && lastHistoryItem.seller_info && lastHistoryItem.seller_info.seller_email) {
+                    console.log(`[TM] History item keys: ${Object.keys(lastHistoryItem).join(', ')}`);
+
+                    const itemId = lastHistoryItem.id || lastHistoryItem.listing_id || lastHistoryItem.listingId;
+
+                    const sellerData = {
+                        email: lastHistoryItem.seller_info.seller_email,
+                        firstName: lastHistoryItem.seller_info.seller_first_name,
+                        lastName: lastHistoryItem.seller_info.seller_last_name,
+                        address1: lastHistoryItem.seller_info.seller_address_line1,
+                        address2: lastHistoryItem.seller_info.seller_address_line2,
+                        city: lastHistoryItem.seller_info.seller_city,
+                        state: lastHistoryItem.seller_info.seller_state,
+                        postal: lastHistoryItem.seller_info.seller_postal,
+                        phone: lastHistoryItem.seller_info.seller_phone,
+                        sellerId: lastHistoryItem.seller_info.seller_id
+                    };
+
+                    if (itemId) {
+                        const dictKey = String(itemId).trim();
+                        console.log(`[TM] Caching data for Listing ID: ${dictKey}`);
+                        listingDataCache[dictKey] = sellerData;
+                    } else {
+                        console.warn("[TM] Found seller info, but could not find a Listing ID to key it with.");
+                        console.warn("[TM] Available keys:", JSON.stringify(Object.keys(lastHistoryItem)));
+                    }
+
+                    // Also cache by the on-screen ID as a fallback
+                    const screenId = getListingIdFromScreen();
+                    if (screenId && !listingDataCache[screenId]) {
+                        console.log(`[TM] Also caching data under screen Listing ID: ${screenId}`);
+                        listingDataCache[screenId] = sellerData;
+                    }
+                }
+            }
+        } catch (e) {
+            console.log("Error parsing core JSON or finding email: " + e);
+        }
+    }
+
+    // --- Intercept XHR in addition to fetch ---
+    const interceptXHR = () => {
+        const XHR = unsafeWindow.XMLHttpRequest;
+        const originalOpen = XHR.prototype.open;
+        const originalSend = XHR.prototype.send;
+
+        XHR.prototype.open = function(method, url, ...rest) {
+            this._tmUrl = url;
+            return originalOpen.apply(this, [method, url, ...rest]);
+        };
+
+        XHR.prototype.send = function(...args) {
+            this.addEventListener('load', function() {
+                try {
+                    if (this._tmUrl && this._tmUrl.includes('/core')) {
+                        const data = JSON.parse(this.responseText);
+                        cacheFromApiData(data);
+                    }
+                } catch (e) {
+                    // Not JSON or not relevant — ignore
+                }
+            });
+            return originalSend.apply(this, args);
+        };
+        console.log("[TM] XHR interceptor is active.");
+    };
+
     // --- Init ---
+    // 1. Hook fetch + XHR IMMEDIATELY (before any API calls fire)
     interceptFetch();
-    applyTextReplacement();
-    attachListenerToButton();
+    interceptXHR();
+
+    // 2. Wait for DOM to be ready before touching the page
+    const initDOM = () => {
+        console.log('[TM] DOM ready — initializing UI...');
+        document.body.insertAdjacentHTML('beforeend', modalAcceptHTML);
+        document.body.insertAdjacentHTML('beforeend', modalPublishHTML);
+
+        // Set the outer-scope modal references
+        acceptModal = document.getElementById('accept-modal-backdrop');
+        publishModal = document.getElementById('publish-modal-backdrop');
+
+        attachModalListeners();
+        attachObservers();
+        applyTextReplacement();
+        attachListenerToButton();
+        console.log('[TM] UI initialization complete.');
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initDOM);
+    } else {
+        initDOM();
+    }
 
 })();
