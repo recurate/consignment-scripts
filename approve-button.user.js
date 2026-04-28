@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accept and approve button
 // @namespace    http://tampermonkey.net/
-// @version      2.4
+// @version      2.7
 // @description  Intercepts a specific button click, shows a confirmation modal, and performs an action based on user choice. Handles resource navigation correctly.
 // @author       Trove Recommerce (Adam Siegel)
 // @match        https://dashboard.recurate-app.com/*
@@ -15,6 +15,10 @@
 
 (function() {
     'use strict';
+
+    // --- DEBUG ---
+    // Set false to silence interceptor / arm / expiry logs in production.
+    const DEBUG = true;
 
     // --- ZAPIER webhook URL ---
     const zapierAcceptWebhookURL = 'https://hooks.zapier.com/hooks/catch/20833124/usmo7yh/';
@@ -101,44 +105,28 @@
     `);
 
     // -----------------------------
-    // Configuration for changing the consignor info to DVF Vintage's info
+    // Seller override — merged into args.mergedData.seller_info on outgoing
+    // POST /api/core requests where endpoint === "saveListingDetails".
+    // Only keys present here are overwritten; others on the original payload pass through.
     // -----------------------------
-    const FIELD_STEPS = [
-        {
-            buttonSelector: 'p[data-testid="seller-name-header"] button[data-testid="edit-btn"]',
-            inputSelector: ['input[name="seller_first_name"]', 'input[name="seller_last_name"]'],
-            value: ['DVF', 'Vintage'],
-            pressEnter: true,
-        },
-        {
-            buttonSelector: 'p[data-testid="seller-email-header"] button[data-testid="edit-btn"]',
-            inputSelector: [ 'input[name="seller_email"]' ],
-            value: [ 'dvf@trove.co' ],
-            pressEnter: true,
-        },
-        {
-            buttonSelector: 'p[data-testid="seller-phone-header"] button[data-testid="edit-btn"]',
-            inputSelector: ['input[name="seller_phone"]'],
-            value: ['888-888-8888'],
-            pressEnter: true,
-        },
-        {
-            buttonSelector: 'p[data-testid="seller-address-header"] button[data-testid="edit-btn"]',
-            inputSelector: [
-                'input[name="seller_address_line1"]', 'input[name="seller_address_line2"]',
-                'input[name="seller_city"]', 'input[name="seller_state"]',
-                'input[name="seller_postal"]', 'input[name="seller_country"]'
-            ],
-            value: ['872 Washington Street', '', 'New York', 'NY', '10014', 'US'],
-            pressEnter: true,
-        },
-    ];
+    const SELLER_OVERRIDE = {
+        seller_id: "1111",
+        seller_first_name: "DVF",
+        seller_last_name: "Vintage",
+        seller_email: "dvf@trove.co",
+        seller_phone: "888-888-8888",
+        seller_address_line1: "872 Washington Street",
+        seller_address_line2: "",
+        seller_city: "New York",
+        seller_state: "NY",
+        seller_postal: "10014",
+        seller_country: "US"
+        // seller_company intentionally omitted — add a value here if you want to overwrite it.
+    };
 
     // Global timing
     const CHECK_INTERVAL_MS = 200;
     const STEP_TIMEOUT_MS   = 15000;
-    const AFTER_CLICK_PAUSE_MS = 150;
-    const BETWEEN_STEPS_PAUSE_MS = 200;
 
 
     // =====================================================
@@ -150,6 +138,8 @@
     let isPublishing = false;
     let currentModalPriceInput;
     let currentModalPayoutSpan;
+    let pendingSellerOverride = null;
+    let pendingOverrideTimeout = null;
 
     // =====================================================
     // --- DOM Fallback: Read seller info directly from page ---
@@ -272,8 +262,6 @@
     // --- Utilities for updating seller info ---
     // =====================================================
 
-    const wait = (ms) => new Promise(res => setTimeout(res, ms));
-
     function waitForElement(selector, timeoutMs = STEP_TIMEOUT_MS, pollMs = CHECK_INTERVAL_MS) {
         return new Promise((resolve, reject) => {
             const start = performance.now();
@@ -300,41 +288,63 @@
         inputEl.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
-    function pressEnter(el) {
-        const evt = new KeyboardEvent('keydown', {
-            key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
-            bubbles: true, cancelable: true,
-        });
-        el.dispatchEvent(evt);
+    // Arm the interceptor so the next outgoing saveListingDetails request is rewritten
+    // with SELLER_OVERRIDE values. One-shot, with a 15s safety expiry.
+    function armSellerOverride() {
+        pendingSellerOverride = SELLER_OVERRIDE;
+        if (DEBUG) console.log('[TM] Seller override armed — next saveListingDetails request will be rewritten.');
+        if (pendingOverrideTimeout) clearTimeout(pendingOverrideTimeout);
+        pendingOverrideTimeout = setTimeout(() => {
+            if (pendingSellerOverride) {
+                if (DEBUG) console.warn('[TM] Seller override expired without being consumed (no saveListingDetails seen within 15s).');
+                pendingSellerOverride = null;
+            }
+        }, 15000);
     }
 
-    async function updateSellerInfo() {
-        console.log('[TM] Multi-Field Click & Fill: starting…');
-        for (let i = 0; i < FIELD_STEPS.length; i++) {
-            const { buttonSelector, inputSelector, value, pressEnter: doEnter } = FIELD_STEPS[i];
-            const btn = await waitForElement(buttonSelector).catch(err => {
-                console.error(`[TM] Step ${i + 1}: ${err.message}`);
-                return null;
-            });
-            if (!btn) break;
+    // Rewrite the body of POST /api/core requests where endpoint === "saveListingDetails".
+    // Other core endpoints (approveListing, getListingDetails) are left alone.
+    // One-shot: clears the pending override on the first successful rewrite.
+    function tryRewriteRequestBody(body) {
+        if (!pendingSellerOverride || typeof body !== 'string') return body;
 
-            btn.click();
-            await wait(AFTER_CLICK_PAUSE_MS);
-
-            for (let j = 0; j < inputSelector.length; j++) {
-                const input = await waitForElement(inputSelector[j]).catch(err => {
-                    console.error(`[TM] Step ${i + 1}: ${err.message}`);
-                    return null;
-                });
-                if (!input) break;
-
-                setReactInputValue(input, value[j]);
-                if (doEnter) pressEnter(input);
-                await wait(BETWEEN_STEPS_PAUSE_MS);
-            }
-            await wait(BETWEEN_STEPS_PAUSE_MS);
+        let parsed;
+        try {
+            parsed = JSON.parse(body);
+        } catch (e) {
+            return body; // not JSON
         }
-        console.log('[TM] Multi-Field Click & Fill: finished.');
+
+        if (parsed?.endpoint !== 'saveListingDetails') return body;
+
+        const sellerInfo = parsed?.args?.mergedData?.seller_info;
+        if (!sellerInfo || typeof sellerInfo !== 'object') {
+            if (DEBUG) console.warn('[TM] saveListingDetails request had no args.mergedData.seller_info — skipping rewrite.');
+            return body;
+        }
+
+        const before = { ...sellerInfo };
+        Object.assign(sellerInfo, pendingSellerOverride);
+
+        if (DEBUG) {
+            const diff = {};
+            for (const k of Object.keys(pendingSellerOverride)) {
+                if (before[k] !== sellerInfo[k]) diff[k] = { from: before[k], to: sellerInfo[k] };
+            }
+            console.groupCollapsed('[TM] seller_info rewritten on saveListingDetails');
+            console.log('Before:', before);
+            console.log('After: ', { ...sellerInfo });
+            console.log('Diff:  ', diff);
+            console.groupEnd();
+        }
+
+        pendingSellerOverride = null;
+        if (pendingOverrideTimeout) {
+            clearTimeout(pendingOverrideTimeout);
+            pendingOverrideTimeout = null;
+        }
+
+        return JSON.stringify(parsed);
     }
 
     async function updateListingPrices(price) {
@@ -522,9 +532,7 @@
                 const resalePrice = currentModalPriceInput.value;
                 await updateListingPrices(resalePrice);
 
-                alert("Updating seller information!");
-
-                await updateSellerInfo();
+                armSellerOverride();
 
                 const cleanedId = getListingIdFromScreen();
 
@@ -642,15 +650,48 @@
         console.log("Fetching the original Consignor info - 2");
         const originalFetch = unsafeWindow.fetch;
 
-        unsafeWindow.fetch = function(...args) {
-            const promise = originalFetch.apply(this, args);
+        // Async wrapper so we can read body off a Request object via clone().text().
+        // Handles three call forms:
+        //   fetch(url, init)        — body lives at init.body
+        //   fetch(Request, init)    — body lives at init.body (overrides Request body)
+        //   fetch(Request)          — body lives on the Request itself
+        unsafeWindow.fetch = async function(input, init) {
+            init = init || {};
+
+            const RequestCtor = unsafeWindow.Request;
+            const isRequestInput = (typeof RequestCtor !== 'undefined') && (input instanceof RequestCtor);
+
+            let body = null;
+            if (init.body !== undefined && init.body !== null) {
+                body = init.body;
+            } else if (isRequestInput) {
+                try {
+                    body = await input.clone().text();
+                } catch (e) {
+                    body = null;
+                }
+            }
+
+            if (typeof body === 'string') {
+                const rewritten = tryRewriteRequestBody(body);
+                if (rewritten !== body) {
+                    init = { ...init, body: rewritten };
+                    if (isRequestInput) {
+                        // Rebuild the Request so the new body replaces the original on the wire.
+                        input = new RequestCtor(input, init);
+                    }
+                    if (DEBUG) console.log('[TM] Rewritten body will be passed to originalFetch.');
+                }
+            }
+
+            const promise = originalFetch.call(this, input, init);
             promise.then(response => {
-                if (response.url.includes('/core')) {
+                if (response.url && response.url.includes('/core')) {
                     response.clone().json().then(data => {
                         cacheFromApiData(data);
                     }).catch(() => {});
                 }
-            });
+            }).catch(() => {});
             return promise;
         };
         console.log("Fetch interceptor is active.");
@@ -762,7 +803,8 @@
             return originalOpen.apply(this, [method, url, ...rest]);
         };
 
-        XHR.prototype.send = function(...args) {
+        XHR.prototype.send = function(body, ...rest) {
+            const rewrittenBody = tryRewriteRequestBody(body);
             this.addEventListener('load', function() {
                 try {
                     if (this._tmUrl && this._tmUrl.includes('/core')) {
@@ -773,7 +815,7 @@
                     // Not JSON or not relevant — ignore
                 }
             });
-            return originalSend.apply(this, args);
+            return originalSend.call(this, rewrittenBody, ...rest);
         };
         console.log("[TM] XHR interceptor is active.");
     };
